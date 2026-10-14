@@ -1,0 +1,6 @@
+name: Build IPA (legacy entry)
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    uses: ./.github/workflows/main.yml

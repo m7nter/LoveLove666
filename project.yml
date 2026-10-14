@@ -1,0 +1,70 @@
+name: SecureVault
+options:
+  bundleIdPrefix: com.securevault
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.4"
+  projectFormat: "xcode15_0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    PRODUCT_NAME: SecureVault
+    SWIFT_VERSION: 5.9
+    TARGETED_DEVICE_FAMILY: 1
+    IPHONEOS_DEPLOYMENT_TARGET: 16.0
+    ENABLE_BITCODE: NO
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGN_IDENTITY: ""
+    PROVISIONING_PROFILE_SPECIFIER: ""
+    INFOPLIST_FILE: Resources/Info.plist
+    PRODUCT_BUNDLE_IDENTIFIER: com.securevault.app
+
+targets:
+  SecureVaultTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/SecureVaultTests
+    dependencies:
+      - target: SecureVault
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
+        PRODUCT_BUNDLE_IDENTIFIER: com.securevault.tests
+        PRODUCT_NAME: SecureVaultTests
+        PRODUCT_MODULE_NAME: SecureVaultTests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SecureVault.app/SecureVault"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  SecureVault:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/SecureVault
+        type: group
+    resources:
+      - path: Resources/Assets.xcassets
+      - path: Resources/Info.plist
+    dependencies:
+      - package: ZIPFoundation
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_EMIT_LOC_STRINGS: YES
+
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.19
+
+schemes:
+  SecureVault:
+    build:
+      targets:
+        SecureVault: all
+        SecureVaultTests: [test]
+    test:
+      config: Debug
+      targets:
+        - SecureVaultTests
