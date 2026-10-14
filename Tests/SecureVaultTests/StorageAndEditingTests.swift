@@ -131,7 +131,18 @@ final class StorageAndEditingTests: XCTestCase {
         XCTAssertEqual(result.size, source.size)
         func crop(_ image: UIImage, x: CGFloat) throws -> Data {
             let cg = try XCTUnwrap(image.cgImage?.cropping(to: CGRect(x: x, y: 80, width: 10, height: 10)))
-            return try XCTUnwrap(UIImage(cgImage: cg).pngData())
+            // PNG profiles/metadata can differ even when the pixels are equal.
+            // Compare the same RGBA8 sRGB representation of each region.
+            var pixels = [UInt8](repeating: 0, count: 10 * 10 * 4)
+            let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+            try pixels.withUnsafeMutableBytes { buffer in
+                let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 10, height: 10,
+                    bitsPerComponent: 8, bytesPerRow: 40, space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.interpolationQuality = .none
+                context.draw(cg, in: CGRect(x: 0, y: 0, width: 10, height: 10))
+            }
+            return Data(pixels)
         }
         XCTAssertNotEqual(try crop(baseline, x: 45), try crop(result, x: 45))
         XCTAssertEqual(try crop(baseline, x: 160), try crop(result, x: 160))
