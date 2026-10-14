@@ -15,9 +15,9 @@ final class AccessFlowUITests: XCTestCase {
         app.launch()
         createVault(app, code: "4826")
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 10))
-        app.tap()
         app.buttons["Калькулятор"].tap()
         for key in ["AC", "4", "8", "2", "6", "="] {
+            XCTAssertTrue(app.buttons["calculator.key." + key].waitForExistence(timeout: 5))
             app.buttons["calculator.key." + key].tap()
         }
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 5))
