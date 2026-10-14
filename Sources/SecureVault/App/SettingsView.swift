@@ -187,18 +187,44 @@ struct SettingsView: View {
 
                 Section("Экспорт фото") {
                     Toggle("Впечатывать заметку на фото", isOn: $store.notesOnExport)
-                    Text("При выгрузке к изображению снизу добавляется полная текстовая заметка. Работает для ZIP и отдельных файлов; оригинал в хранилище не меняется.")
+                    Text("Заметка накладывается внизу снимка без изменения его размеров и пропорций. Оригинал в хранилище не меняется.")
                         .font(.caption).foregroundColor(.secondary)
                     Picker("Способ выгрузки", selection: $store.exportAsZip) {
                         Text("ZIP-архивом").tag(true)
                         Text("Отдельными файлами").tag(false)
                     }
                     .pickerStyle(.segmented)
-                    Text(store.exportAsZip
-                         ? "Фото за день упаковываются в один ZIP-архив вместе с файлом метаданных (координаты, дата)"
-                         : "Каждое фото за день отправляется отдельным файлом без метаданных в архиве")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Toggle("Координаты сообщением со снимками", isOn: $store.coordinatesOnShare)
+                        .accessibilityIdentifier("settings.coordinatesOnShare")
+                    Text("К отдельным фото добавляется текст «Выгрузка 22:29. Координаты:» с пронумерованным списком в порядке снимков. Его можно скопировать перед отправкой.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+                Section("Метаданные ZIP-архива") {
+                    Picker("Метаданные", selection: Binding<String>(
+                        get: { store.archiveMetadata == .coordinates ? "coordinates" : store.archiveMetadata == .all ? "all" : store.archiveMetadata.isEmpty ? "none" : "custom" },
+                        set: {
+                            switch $0 {
+                            case "coordinates": store.archiveMetadata = .coordinates
+                            case "all": store.archiveMetadata = .all
+                            case "none": store.archiveMetadata = []
+                            default: break
+                            }
+                        })) {
+                        Text("Только координаты").tag("coordinates")
+                        Text("Все метаданные").tag("all")
+                        Text("Без метаданных").tag("none")
+                        Text("Выбрать поля").tag("custom")
+                    }.accessibilityIdentifier("settings.archiveMetadata")
+                    ForEach(ArchiveMetadataOptions.fields, id: \.0) { name, field in
+                        Toggle(name, isOn: Binding(
+                            get: { store.archiveMetadata.contains(field) },
+                            set: { enabled in
+                                if enabled { store.archiveMetadata.insert(field) }
+                                else { store.archiveMetadata.remove(field) }
+                            }))
+                    }
+                    Text("Поля добавляются в metadata.txt. В режиме «Только координаты» — только список координат; имена фото становятся photo-0001.jpg и не раскрывают дату, папку или событие. Надписи, уже нанесённые на сам снимок, остаются видимыми.")
+                        .font(.caption).foregroundColor(.secondary)
                 }
 
                 Section("Карта") {

@@ -98,7 +98,7 @@ final class CalculatorViewModel: ObservableObject {
                 let result = try CalculationEngine.unary(symbol, value: x, radians: radians)
                 expression = "\(symbol)(\(Self.format(x)))"
                 setValue(result)
-            } catch { showError() }
+            } catch { showError(error) }
         }
     }
     private func digit(_ digit: String) {
@@ -190,7 +190,7 @@ final class CalculatorViewModel: ObservableObject {
             expression = formula
             tokens = []; input = String(result); display = Self.format(result)
             finished = true; replaceInput = true
-        } catch { showError() }
+        } catch { showError(error) }
     }
     func useHistory(_ entry: String) {
         guard let result = entry.components(separatedBy: " = ").last,
@@ -198,9 +198,14 @@ final class CalculatorViewModel: ObservableObject {
         reset(); invalidatePIN(); setValue(value)
     }
     private func readable(_ values: [String]) -> String {
-        values.map { Double($0).map(Self.format) ?? ($0 == "root" ? "ʸ√" : $0) }.joined(separator: " ")
+        values.map { Double($0).map(Self.format) ?? ($0 == "root" ? "ʸ√" : $0) }.joined()
     }
-    private func showError() { display = "Ошибка"; input = ""; tokens = []; finished = true; repeated = nil }
+    private func showError(_ error: Error? = nil) {
+        if case CalculationError.undefined? = error as? CalculationError { display = "Не определено" }
+        else { display = "Ошибка" }
+        input = ""; tokens = []; finished = true; repeated = nil
+        invalidatePIN()
+    }
     private func reset() {
         display = "0"; expression = ""; tokens = []; input = ""
         finished = false; replaceInput = false; repeated = nil; pinInput = ""; pinEligible = true

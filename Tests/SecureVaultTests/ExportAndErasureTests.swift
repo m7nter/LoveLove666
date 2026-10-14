@@ -171,7 +171,7 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertEqual(plain, original)
         let annotatedImage = try XCTUnwrap(UIImage(data: annotated))
         XCTAssertEqual(annotatedImage.size.width, image.size.width)
-        XCTAssertGreaterThan(annotatedImage.size.height, image.size.height)
+        XCTAssertEqual(annotatedImage.size.height, image.size.height)
         XCTAssertEqual(UIImage(data: repeated)?.size, annotatedImage.size)
         XCTAssertEqual(storage.decryptedData(for: url), original)
         XCTAssertEqual(storage.loadMeta(for: url)?.note, "Место события\nВторая строка")

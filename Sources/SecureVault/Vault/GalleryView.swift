@@ -1,19 +1,5 @@
 import SwiftUI
 
-private struct PhotoEventGroup: Identifiable {
-    let id: String
-    let title: String
-    let urls: [URL]
-}
-
-private struct GalleryRecord {
-    let url: URL
-    let meta: PhotoMeta?
-    let date: Date
-    let folder: String
-    let eventKey: String
-}
-
 struct GalleryView: View {
     @Environment(\.dismiss) var dismiss
     @State private var groupedPhotos: [PhotoEventGroup] = []
@@ -21,10 +7,11 @@ struct GalleryView: View {
     @State private var eventKeys: [URL: String] = [:]
     @State private var photoDates: [URL: Date] = [:]
     @State private var reloadID = UUID()
-    @State private var selectedURL: URL?
     @State private var showSettings = false
     @State private var sharingItems: [Any] = []
     @State private var showShareSheet = false
+    @State private var sharingText = ""
+    @State private var eventPath: [String] = []
     @State private var isExporting = false
     @State private var isSelecting = false
     @State private var selectedURLs: Set<URL> = []
@@ -35,14 +22,19 @@ struct GalleryView: View {
     @ObservedObject private var settings = SettingsStore.shared
     private let accessGeneration = VaultGate.shared.generation
     init() {}
-    private let columns = [GridItem(.adaptive(minimum: 110), spacing: 2)]
+    private let columns = [GridItem(.adaptive(minimum: 145), spacing: 12)]
+    private var days: [GalleryDayGroup] { GalleryGrouping.days(groupedPhotos) }
+    private func dayTitle(_ date: Date) -> String {
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "d MMMM yyyy"; return formatter.string(from: date)
+    }
 
     private var totalCount: Int {
         groupedPhotos.reduce(0) { $0 + $1.urls.count }
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack(path: $eventPath) {
             ZStack(alignment: .bottom) {
                 if currentFolder == nil {
                     List {
@@ -63,15 +55,17 @@ struct GalleryView: View {
                 } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                        ForEach(groupedPhotos) { group in
-                            let day = group.title
-                            let urls = group.urls
+                        ForEach(days) { section in
+                            let day = dayTitle(section.date)
+                            let urls = section.urls
                             Section {
-                                LazyVGrid(columns: columns, spacing: 2) {
-                                    ForEach(urls, id: \.self) { url in
+                                LazyVGrid(columns: columns, spacing: 12) {
+                                    ForEach(section.events) { group in
+                                        if let url = group.urls.first {
                                         ThumbnailCell(
                                             url: url,
-                                            title: photoTitles[url] ?? url.deletingPathExtension().lastPathComponent,
+                                            title: group.title,
+                                            photoCount: group.urls.count,
                                             isSelecting: isSelecting,
                                             isSelected: selectedURLs.contains(url)
                                         )
@@ -79,15 +73,18 @@ struct GalleryView: View {
                                             if isSelecting {
                                                 toggleSelection(url)
                                             } else {
-                                                selectedURL = url
+                                                eventPath.append(group.id)
                                             }
+                                        }
+                                        .accessibilityIdentifier("gallery.event." + group.id)
+                                        .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
                                         }
                                     }
                                 }
-                                .padding(.bottom, 8)
+                                .padding(.horizontal, 12).padding(.bottom, 12)
                             } header: {
                                 HStack {
-                                    Text("\(day) — \(urls.count) фото")
+                                    Text("\(day) · \(section.events.count) событий · \(urls.count) фото")
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundColor(.white)
                                     Spacer()
@@ -177,6 +174,10 @@ struct GalleryView: View {
             }
             .navigationTitle(currentFolder.map { "\($0) (\(totalCount))" } ?? "Хранилище папок")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: String.self) { id in
+                EventGalleryView(eventID: id, groups: groupedPhotos, photoTitles: photoTitles,
+                    isExporting: isExporting, onShare: { shareDay(day: $0.title, urls: $0.urls) }, onDelete: delete)
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if isSelecting {
@@ -217,21 +218,16 @@ struct GalleryView: View {
         }
         .onAppear { reload() }
         .onDisappear { reloadID = UUID() }
-        .sheet(item: $selectedURL) { url in
-            let flat = groupedPhotos.flatMap { $0.urls }
-            let idx = flat.firstIndex(of: url) ?? 0
-            PhotoDetailView(urls: flat, initialIndex: idx) { deletedURL in
-                delete(url: deletedURL)
-            }
-        }
         .sheet(isPresented: $showSettings, onDismiss: { reload() }) {
             SettingsView()
         }
         .sheet(isPresented: $showShareSheet, onDismiss: {
             sharingItems = []
+            sharingText = ""
             PhotoExporter.cleanupTemporaryExports()
         }) {
-            ShareSheet(items: sharingItems)
+            if sharingText.isEmpty { ShareSheet(items: sharingItems) }
+            else { CoordinateSharePreview(items: sharingItems, text: sharingText) }
         }
         .alert(
             "Удалить \(selectedURLs.count) фото?",
@@ -271,51 +267,40 @@ struct GalleryView: View {
 
     private func shareSelected() {
         let urls = selectedURLs.sorted { (photoDates[$0] ?? .distantPast) < (photoDates[$1] ?? .distantPast) }
-        guard !urls.isEmpty, !isExporting else { return }
-        let notes = settings.notesOnExport
-        let numbering = settings.numberingMode
-
-        guard SettingsStore.shared.exportAsZip else {
-            isExporting = true
-            DispatchQueue.global(qos: .userInitiated).async {
-                let result = Result { try PhotoExporter.copies(of: urls, includeNotes: notes, generation: accessGeneration, numberingMode: numbering) }
-                DispatchQueue.main.async {
-                    isExporting = false
-                    switch result {
-                    case .success(let plainURLs): sharingItems = plainURLs; showShareSheet = true
-                    case .failure(let error): operationError = "Экспорт не выполнен: \(error.localizedDescription)"
-                    }
-                }
-            }
-            return
-        }
-
-        isExporting = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            let zipURL = ZipExporter.exportDay(label: "Выбранные фото", urls: urls, includeNotes: notes, generation: accessGeneration, numberingMode: numbering)
-            DispatchQueue.main.async {
-                isExporting = false
-                if let zipURL = zipURL {
-                    sharingItems = [zipURL]
-                    showShareSheet = true
-                } else { operationError = "Не удалось создать архив. Проверьте свободное место." }
-            }
-        }
+        shareDay(day: "Выбранные фото", urls: urls)
     }
 
     private func shareDay(day: String, urls: [URL]) {
         guard !urls.isEmpty, !isExporting else { return }
         let notes = settings.notesOnExport
         let numbering = settings.numberingMode
+        let metadata = settings.archiveMetadata
+        let coordinates = settings.coordinatesOnShare
+        let ordered = urls.sorted {
+            let lhs = photoDates[$0] ?? .distantPast, rhs = photoDates[$1] ?? .distantPast
+            return lhs == rhs ? $0.path < $1.path : lhs < rhs
+        }
 
         guard SettingsStore.shared.exportAsZip else {
             isExporting = true
             DispatchQueue.global(qos: .userInitiated).async {
-                let result = Result { try PhotoExporter.copies(of: urls, includeNotes: notes, generation: accessGeneration, numberingMode: numbering) }
+                let result = Result { () -> ([URL], String) in
+                    let files = try PhotoExporter.copies(of: ordered, includeNotes: notes, generation: accessGeneration, numberingMode: numbering)
+                    let text = try VaultGate.shared.withAccess(generation: accessGeneration) {
+                        coordinates ? ExportMetadata.coordinateMessage(ordered.map {
+                            ExportPhotoRecord(filename: $0.lastPathComponent, meta: FileStorageManager.shared.loadMeta(for: $0), folder: "")
+                        }) : ""
+                    }
+                    return (files, text)
+                }
                 DispatchQueue.main.async {
                     isExporting = false
+                    guard VaultGate.shared.generation == accessGeneration else { return }
                     switch result {
-                    case .success(let plainURLs): sharingItems = plainURLs; showShareSheet = true
+                    case .success(let payload):
+                        sharingText = payload.1
+                        sharingItems = ExportMetadata.messageParts(payload.1).map { $0 as Any } + payload.0.map { $0 as Any }
+                        showShareSheet = true
                     case .failure(let error): operationError = "Экспорт не выполнен: \(error.localizedDescription)"
                     }
                 }
@@ -325,9 +310,12 @@ struct GalleryView: View {
 
         isExporting = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let zipURL = ZipExporter.exportDay(label: day, urls: urls, includeNotes: notes, generation: accessGeneration, numberingMode: numbering)
+            let zipURL = ZipExporter.exportDay(label: day, urls: ordered, includeNotes: notes,
+                generation: accessGeneration, numberingMode: numbering, metadata: metadata)
             DispatchQueue.main.async {
                 isExporting = false
+                guard VaultGate.shared.generation == accessGeneration else { return }
+                sharingText = ""
                 if let zipURL = zipURL {
                     sharingItems = [zipURL]
                     showShareSheet = true
@@ -354,32 +342,16 @@ struct GalleryView: View {
             var titles: [URL: String] = [:]
             var keys: [URL: String] = [:]
             var dates: [URL: Date] = [:]
-            var events: [String: [GalleryRecord]] = [:]
-            var order: [String] = []
             for record in records {
                 counts[record.folder, default: 0] += 1
                 titles[record.url] = storage.title(for: record.url, meta: record.meta, numberingMode: numberingMode)
                 keys[record.url] = record.eventKey
                 dates[record.url] = record.date
-                if record.folder == folder {
-                    if events[record.eventKey] == nil { order.append(record.eventKey) }
-                    events[record.eventKey, default: []].append(record)
-                }
             }
             let names = Set(["Без режима"] + modes + Array(counts.keys))
             let folderRows = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
                 .map { ($0, counts[$0] ?? 0) }
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "ru_RU")
-            formatter.dateFormat = "d MMMM yyyy"
-            let groups = order.compactMap { key -> PhotoEventGroup? in
-                guard let members = events[key]?.sorted(by: { ($0.meta?.eventIndex ?? 1) < ($1.meta?.eventIndex ?? 1) }),
-                      let first = members.first else { return nil }
-                let eventTitle = first.meta?.eventNumber.map { "Событие \($0)" } ?? "Отдельный снимок"
-                let title = formatter.string(from: first.date) + " · " + eventTitle
-                    + " · \(members.count)/\(first.meta?.eventCount ?? members.count)"
-                return PhotoEventGroup(id: key, title: title, urls: members.map { $0.url })
-            }
+            let groups = GalleryGrouping.events(records.filter { $0.folder == folder })
             DispatchQueue.main.async {
                 guard self.reloadID == requestID, VaultGate.shared.generation == generation else { return }
                 self.folders = folderRows
@@ -412,6 +384,7 @@ extension URL: Identifiable { public var id: String { absoluteString } }
 struct ThumbnailCell: View {
     let url: URL
     let title: String
+    var photoCount: Int = 1
     var isSelecting: Bool = false
     var isSelected: Bool = false
     @State private var image: UIImage?
@@ -432,13 +405,12 @@ struct ThumbnailCell: View {
             if let image = image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
-                    .frame(width: 110, height: 110)
-                    .clipped()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
                     .opacity(isSelecting && !isSelected ? 0.55 : 1.0)
             } else {
                 Color.gray.opacity(0.15)
-                    .frame(width: 110, height: 110)
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
             }
             if isSelecting {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -448,9 +420,15 @@ struct ThumbnailCell: View {
                     .padding(6)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if photoCount > 1 {
+                Label("\(photoCount)", systemImage: "photo.on.rectangle")
+                    .font(.caption.bold()).padding(6).background(.black.opacity(0.7), in: Capsule()).padding(6)
+            }
+        }
         Text(title)
             .font(.caption2).foregroundColor(.white).lineLimit(3)
-            .frame(width: 110, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
             guard image == nil else { return }

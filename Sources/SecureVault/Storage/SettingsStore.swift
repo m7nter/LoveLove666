@@ -2,6 +2,13 @@ import SwiftUI
 
 class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
+    @Published var coordinatesOnShare: Bool = UserDefaults.standard.bool(forKey: "coordinatesOnShare") {
+        didSet { UserDefaults.standard.set(coordinatesOnShare, forKey: "coordinatesOnShare") }
+    }
+    @Published var archiveMetadata: ArchiveMetadataOptions = .init(
+        rawValue: UserDefaults.standard.object(forKey: "archiveMetadata") as? Int ?? ArchiveMetadataOptions.standard.rawValue) {
+        didSet { UserDefaults.standard.set(archiveMetadata.rawValue, forKey: "archiveMetadata") }
+    }
     @Published var securityError: String?
     @Published var notesOnExport: Bool = UserDefaults.standard.bool(forKey: "notesOnExport") {
         didSet { UserDefaults.standard.set(notesOnExport, forKey: "notesOnExport") }
@@ -188,6 +195,7 @@ class SettingsStore: ObservableObject {
     func resetToFactory() {
         avatarImage = nil
         notesOnExport = false; numberingMode = "off"
+        coordinatesOnShare = false; archiveMetadata = .standard
         foldersEnabled = false; workModes = ["0.5", "1", "2"]; activeWorkMode = "0.5"
         photosPerEvent = 1; blackScreenEnabled = false; annotationColor = "red"
         showCrosshair = false; crosshairColor = "white"; crosshairOnPhoto = false

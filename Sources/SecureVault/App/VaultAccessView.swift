@@ -40,17 +40,13 @@ struct VaultAccessView: View {
                 }
                 Section {
                     VaultResetButton()
-                } footer: {
-                    Text("Калькулятор · 1.1.0 (3)")
                 }
             }
             .navigationTitle("Настройка доступа")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if !isSetup {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Калькулятор", action: onCalculator)
-                    }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Калькулятор", action: onCalculator)
                 }
             }
             .tint(.orange)
@@ -110,6 +106,7 @@ struct VaultResetButton: View {
 
 struct VaultRecoveryView: View {
     @ObservedObject var lifecycle: VaultLifecycle
+    let onCalculator: () -> Void
     var body: some View {
         VStack(spacing: 24) {
             if lifecycle.isErasing {
@@ -122,7 +119,7 @@ struct VaultRecoveryView: View {
                 Text(lifecycle.lastError ?? "Обнаружена блокировка из старой версии. После очистки откроется настройка нового кода.")
                 Button("Повторить очистку") { lifecycle.erase(.reset) }.buttonStyle(.borderedProminent).tint(.orange)
             }
-            Text("Калькулятор · 1.1.0 (3)").font(.caption).foregroundStyle(.secondary)
+            Button("Калькулятор", action: onCalculator).tint(.orange)
         }
         .multilineTextAlignment(.center).padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

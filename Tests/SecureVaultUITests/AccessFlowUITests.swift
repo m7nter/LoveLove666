@@ -13,6 +13,7 @@ final class AccessFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--test-legacy-lock"]
         app.launch()
+        openHiddenAccess(app)
         createVault(app, code: "4826")
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 10))
         app.buttons["Калькулятор"].tap()
@@ -40,9 +41,13 @@ final class AccessFlowUITests: XCTestCase {
         let menu = app.buttons["calculator.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
         menu.tap()
-        app.buttons["Хранилище"].tap()
+        XCTAssertFalse(app.buttons["Хранилище"].exists)
+        XCTAssertFalse(app.staticTexts["Калькулятор 1.1.0 (3)"].exists)
+        app.tapCoordinate(x: 0.08, y: 0.40)
+        openHiddenAccess(app)
         app.buttons["access.reset"].tap()
         app.alerts.buttons["Удалить и создать заново"].tap()
+        openHiddenAccess(app)
         createVault(app, code: "5804")
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 10))
     }
@@ -58,5 +63,16 @@ final class AccessFlowUITests: XCTestCase {
         let submit = app.buttons["access.submit"]
         if !submit.isHittable { app.swipeUp() }
         submit.tap()
+    }
+    private func openHiddenAccess(_ app: XCUIApplication) {
+        let display = app.staticTexts["calculator.display"]
+        XCTAssertTrue(display.waitForExistence(timeout: 20))
+        display.press(forDuration: 3.2)
+    }
+}
+
+private extension XCUIApplication {
+    func tapCoordinate(x: CGFloat, y: CGFloat) {
+        coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).tap()
     }
 }

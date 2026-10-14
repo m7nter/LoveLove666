@@ -42,6 +42,7 @@ targets:
       - path: Tests/SecureVaultTests
     dependencies:
       - target: SecureVault
+      - package: ZIPFoundation
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

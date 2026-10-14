@@ -6,6 +6,7 @@ struct SecureVaultApp: App {
     @State private var isCameraOnly = false
     @State private var backgroundTime: Date? = nil
     @State private var inactivityTimer: Timer? = nil
+    @State private var showsRecovery = false
     @Environment(\.scenePhase) var scenePhase
     @StateObject private var lifecycle = VaultLifecycle.shared
 
@@ -21,6 +22,22 @@ struct SecureVaultApp: App {
         if ProcessInfo.processInfo.arguments.contains("--test-calculator") {
             try? KeychainCodeStore.write("1357", for: "mainCode")
             UserDefaults.standard.set(2, forKey: "vaultAccessFlowVersion")
+        }
+        if ProcessInfo.processInfo.arguments.contains("--test-gallery") {
+            let storage = FileStorageManager.shared
+            for url in storage.loadAll() { storage.delete(url: url) }
+            let eventID = UUID(uuidString: "12345678-1234-1234-1234-123456789012")!
+            for index in 1...2 {
+                let size = index == 1 ? CGSize(width: 400, height: 300) : CGSize(width: 300, height: 400)
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                    UIColor.orange.setFill(); UIRectFill(CGRect(origin: .zero, size: size))
+                    UIColor.blue.setFill(); UIRectFill(CGRect(x: 10, y: 10, width: size.width - 20, height: size.height - 20))
+                }
+                let context = CaptureContext(eventID: eventID, folder: "0.5", expectedCount: 2,
+                    index: index, eventNumber: 1, generation: VaultGate.shared.generation)
+                _ = storage.save(image: image, context: context)
+            }
         }
         #endif
         setupCrashLogging()
@@ -39,14 +56,15 @@ struct SecureVaultApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-            if lifecycle.blocksUI {
-                VaultRecoveryView(lifecycle: lifecycle)
+            if lifecycle.blocksUI && showsRecovery {
+                VaultRecoveryView(lifecycle: lifecycle, onCalculator: { showsRecovery = false })
             } else {
             RootView(
                 isUnlocked: $isUnlocked,
                 isCameraOnly: $isCameraOnly,
                 onStartTimer: startTimer,
-                onStopTimer: stopTimer
+                onStopTimer: stopTimer,
+                onBlockedAccess: { showsRecovery = true }
             )
             .id(lifecycle.generation)
             }
@@ -140,24 +158,22 @@ struct RootView: View {
     @Binding var isCameraOnly: Bool
     let onStartTimer: () -> Void
     let onStopTimer: () -> Void
+    let onBlockedAccess: () -> Void
     @State private var needsSetup = false
     @State private var showAccess = false
-    @State private var loaded = false
     @State private var accessError: String?
-    @AppStorage("vaultAccessFlowVersion") private var accessFlowVersion = 0
 
     var body: some View {
         Group {
-            if !loaded {
-                ProgressView("Подготовка…").task { refreshAccess() }
-            } else if let accessError {
+            if showAccess, let accessError {
                 VStack(spacing: 20) {
                     Text("Не удалось прочитать код") .font(.title2)
                     Text(accessError).font(.callout)
                     Button("Повторить") { refreshAccess() }
                     VaultResetButton()
+                    Button("Калькулятор") { showAccess = false }
                 }.padding(24)
-            } else if needsSetup || showAccess {
+            } else if showAccess {
                 VaultAccessView(isSetup: needsSetup, onAuthorized: unlock,
                     onCalculator: { showAccess = false })
             } else if isCameraOnly {
@@ -165,7 +181,7 @@ struct RootView: View {
             } else if isUnlocked {
                 VaultView(onLock: lock)
             } else {
-                CalculatorView(onUnlock: unlock, onAccess: { showAccess = true })
+                CalculatorView(onUnlock: unlock, onAccess: openHiddenAccess)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -177,23 +193,26 @@ struct RootView: View {
         do {
             let code = try KeychainCodeStore.readChecked("mainCode")
             needsSetup = code.isEmpty || code == "2026"
-            showAccess = accessFlowVersion < 2
             accessError = nil
         } catch {
             accessError = "Защищённое хранилище iOS: \(error.localizedDescription). Код ошибки: \((error as NSError).code)."
         }
-        loaded = true
+    }
+    private func openHiddenAccess() {
+        guard !VaultLifecycle.shared.blocksUI else { onBlockedAccess(); return }
+        refreshAccess()
+        showAccess = true
     }
     private func unlock() {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
-        accessFlowVersion = 2
         needsSetup = false; showAccess = false
         isUnlocked = true; isCameraOnly = false
         onStartTimer()
     }
     private func lock() {
         isUnlocked = false; isCameraOnly = false
+        showAccess = false
         onStopTimer()
         PhotoExporter.cleanupTemporaryExports()
     }

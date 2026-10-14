@@ -1,4 +1,5 @@
 import SwiftUI
+import AudioToolbox
 
 struct CalculatorView: View {
     @StateObject private var vm = CalculatorViewModel()
@@ -27,13 +28,13 @@ struct CalculatorView: View {
             let keyHeight = scientific ? max(28, min(width * 0.50, (heightBudget - gap * 9) / 10))
                 : min(width, (heightBudget - gap * 4) / 5)
             VStack(spacing: 0) {
-                toolbar.frame(height: 54).padding(.horizontal, inset)
+                toolbar.frame(height: 48).padding(.horizontal, inset)
                 Spacer(minLength: 6)
                 if converting {
                     conversionDisplay(size: min(58, width * 0.70))
                         .padding(.horizontal, inset + 3).padding(.bottom, 12)
                 } else {
-                    numberDisplay(size: scientific ? min(46, width * 0.54) : min(68, width * 0.78))
+                    numberDisplay(size: scientific ? min(46, width * 0.54) : min(84, width * 0.98))
                         .padding(.horizontal, inset + 3).padding(.bottom, 18)
                 }
                 VStack(spacing: gap) {
@@ -47,7 +48,7 @@ struct CalculatorView: View {
                         }
                     }
                 }
-                .padding(.horizontal, inset).padding(.bottom, 14)
+                .padding(.horizontal, inset).padding(.bottom, 28)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color.black.ignoresSafeArea()).preferredColorScheme(.dark)
@@ -58,6 +59,13 @@ struct CalculatorView: View {
             if args.contains("--preview-conversion") {
                 converting = true; conversion.to = "EUR"
                 for digit in ["7", "9", "9"] { vm.tap(digit) }
+            }
+            if args.contains("--preview-units") {
+                converting = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { selectingSource = true }
+            }
+            if args.contains("--preview-example") {
+                for key in ["1", "1", ",", "7", "5", "−", "8", "×", "0", ",", "5", "="] { vm.tap(key) }
             }
             #endif
         }
@@ -75,14 +83,15 @@ struct CalculatorView: View {
     private func numberDisplay(size: CGFloat) -> some View {
         VStack(alignment: .trailing, spacing: 3) {
             if !vm.expression.isEmpty {
-                Text(vm.expression).font(.system(size: 21)).foregroundStyle(.white.opacity(0.5))
+                Text(vm.expression).font(.system(size: scientific ? 19 : 26)).foregroundStyle(.white.opacity(0.5))
                     .lineLimit(1).minimumScaleFactor(0.5)
             }
             Text(vm.display).font(.system(size: size, weight: .regular, design: .default))
                 .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.3)
                 .modifier(CalculatorNumberTransition())
                 .accessibilityIdentifier("calculator.display")
-                .contextMenu { Button("Скопировать") { UIPasteboard.general.string = vm.display } }
+                .onTapGesture(count: 2) { UIPasteboard.general.string = vm.display }
+                .onLongPressGesture(minimumDuration: 3, perform: onAccess)
         }.frame(maxWidth: .infinity, minHeight: 90, alignment: .bottomTrailing)
     }
     private func conversionDisplay(size: CGFloat) -> some View {
@@ -104,14 +113,6 @@ struct CalculatorView: View {
                     .accessibilityIdentifier("calculator.converted")
                 unitButton(conversion.to, source: false)
             }
-            HStack {
-                Text(conversion.status).font(.system(size: 10)).foregroundStyle(.gray).lineLimit(2)
-                Spacer(minLength: 0)
-                if conversion.category == .currency {
-                    Button { Task { await conversion.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                        .font(.caption).tint(.orange).disabled(conversion.loading).accessibilityLabel("Обновить курс")
-                }
-            }.padding(.top, 3)
         }.task { if conversion.category == .currency { await conversion.reload() } }
     }
     private func formatConversion(_ value: Double) -> String {
@@ -155,15 +156,14 @@ struct CalculatorView: View {
             }.buttonStyle(.plain).modifier(CalculatorTopSurface()).accessibilityLabel("История")
             Spacer()
             Menu {
-                Button { scientific = false } label: { Label("Основной", systemImage: scientific ? "circle" : "checkmark") }
-                Button { scientific = true } label: { Label("Научный", systemImage: scientific ? "checkmark" : "circle") }
-                Toggle("Конвертация", isOn: $converting)
-                Button("История") { showHistory = true }
+                Picker("Режим", selection: $scientific) {
+                    Label("Стандартный", systemImage: "plus.forwardslash.minus").tag(false)
+                    Label("Научный", systemImage: "function").tag(true)
+                }
                 Divider()
-                Button("Хранилище", action: onAccess)
-                Text("Калькулятор 1.1.0 (3)")
+                Toggle(isOn: $converting) { Label("Конвертация", systemImage: "arrow.left.arrow.right") }
             } label: {
-                CalculatorGlyph().frame(width: 19, height: 25).frame(width: 44, height: 44)
+                CalculatorGlyph().frame(width: 17, height: 23).frame(width: 44, height: 44)
             }.buttonStyle(.plain).modifier(CalculatorTopSurface())
                 .accessibilityLabel("Режим калькулятора").accessibilityIdentifier("calculator.menu")
         }.foregroundStyle(.white)
@@ -175,31 +175,106 @@ struct ConversionPicker: View {
     let source: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Picker("Категория", selection: Binding(get: { model.category }, set: { model.select($0) })) {
-                        ForEach(ConversionCategory.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                }
-                ForEach(model.units.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.id.localizedCaseInsensitiveContains(search) }) { unit in
-                    Button {
-                        if source { model.from = unit.id } else { model.to = unit.id }
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(unit.name); Spacer(); Text(unit.id).foregroundStyle(.secondary)
-                            if unit.id == (source ? model.from : model.to) { Image(systemName: "checkmark").foregroundStyle(.orange) }
-                        }
-                    }.foregroundStyle(.white)
-                }
-            }.searchable(text: $search, prompt: "Валюта или единица")
-                .navigationTitle(source ? "Из" : "В").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("Готово") { dismiss() } }
-                .onChange(of: model.category) { value in if value == .currency { Task { await model.reload() } } }
-        }.preferredColorScheme(.dark).tint(.orange)
+    private var selectedID: String { source ? model.from : model.to }
+    private var categories: [ConversionCategory] {
+        ConversionCategory.allCases.sorted { $0.rawValue.localizedStandardCompare($1.rawValue) == .orderedAscending }
     }
+    private var rows: [ConversionChoice] {
+        let choices = search.isEmpty ? [model.category] : categories
+        return choices.flatMap { category in
+            let units = category == .currency ? model.currencyUnits : category.units
+            return units.map { ConversionChoice(category: category, unit: $0) }
+        }.filter { search.isEmpty || $0.unit.name.localizedCaseInsensitiveContains(search) || $0.unit.id.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.unit.name.localizedStandardCompare($1.unit.name) == .orderedAscending }
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Text("Единицы").font(.headline.bold())
+                HStack {
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "checkmark").font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(.white).frame(width: 44, height: 44)
+                            .background(Color.orange, in: Circle())
+                    }.accessibilityLabel("Готово")
+                }
+            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(categories) { category in
+                            Button {
+                                model.select(category)
+                                withAnimation { proxy.scrollTo(category.id, anchor: .center) }
+                            } label: {
+                                Text(category.rawValue).font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(category == model.category ? .white : .orange)
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(category == model.category ? Color.orange : .clear, in: Capsule())
+                            }.id(category.id)
+                        }
+                    }.padding(.horizontal, 12)
+                }.onAppear { proxy.scrollTo(model.category.id, anchor: .center) }
+            }.padding(.bottom, 10)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows) { choice in
+                            let selected = choice.category == model.category && choice.unit.id == selectedID
+                            Button {
+                                if choice.category != model.category { model.select(choice.category) }
+                                if source { model.from = choice.unit.id } else { model.to = choice.unit.id }
+                                dismiss()
+                            } label: {
+                                HStack(alignment: .center, spacing: 8) {
+                                    Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold))
+                                        .frame(width: 20).opacity(selected ? 1 : 0)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(choice.unit.name).font(.system(size: 17, weight: .medium))
+                                        Text(choice.unit.id).font(.system(size: 13))
+                                            .foregroundStyle(selected ? .orange : .secondary)
+                                    }
+                                    Spacer(minLength: 0)
+                                }.foregroundStyle(selected ? .orange : .white)
+                                    .frame(maxWidth: .infinity, minHeight: 67, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain).id(choice.id)
+                                .accessibilityIdentifier("conversion.unit." + choice.unit.id)
+                            Divider().padding(.leading, 28)
+                        }
+                    }.padding(.horizontal, 14)
+                }
+                .onAppear { proxy.scrollTo(model.category.id + ":" + selectedID, anchor: .top) }
+                .onChange(of: model.currencyUnits.count) { _ in
+                    if search.isEmpty { proxy.scrollTo(model.category.id + ":" + selectedID, anchor: .top) }
+                }
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.white)
+                TextField("Поиск по всем единицам", text: $search)
+                    .font(.system(size: 17)).autocorrectionDisabled()
+                    .accessibilityIdentifier("conversion.search")
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .foregroundStyle(.secondary).accessibilityLabel("Очистить поиск")
+                }
+            }.padding(.horizontal, 16).frame(height: 48)
+                .background(.thinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.16), lineWidth: 0.7))
+                .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 18)
+        }.background(Color(white: 0.13)).foregroundStyle(.white)
+            .preferredColorScheme(.dark).tint(.orange)
+            .presentationDetents([.large]).presentationDragIndicator(.hidden)
+            .onChange(of: model.category) { value in if value == .currency { Task { await model.reload() } } }
+    }
+}
+
+private struct ConversionChoice: Identifiable {
+    let category: ConversionCategory
+    let unit: ConversionUnit
+    var id: String { category.id + ":" + unit.id }
 }
 
 // Match the system's rounded material on the navigation controls.
@@ -216,31 +291,43 @@ private struct CalculatorNumberTransition: ViewModifier {
 // Draw the toolbar glyph ourselves; unavailable SF Symbols render as an empty button.
 private struct CalculatorGlyph: View {
     var body: some View {
-        VStack(spacing: 3) {
-            RoundedRectangle(cornerRadius: 1.5).fill(.black).frame(height: 6)
+        VStack(spacing: 2) {
+            RoundedRectangle(cornerRadius: 1).fill(.black).frame(height: 6)
             ForEach(0..<3) { _ in
                 HStack(spacing: 2) {
                     ForEach(0..<3) { _ in Circle().fill(.black) }
                 }
             }
         }
-        .padding(3)
-        .background(.white, in: RoundedRectangle(cornerRadius: 3.5))
+        .padding(2.4)
+        .background(.white, in: RoundedRectangle(cornerRadius: 3))
     }
 }
 
 private struct CalculatorTopSurface: ViewModifier {
-    func body(content: Content) -> some View {
-        content.background(Color(white: 0.07), in: Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.8))
+    @ViewBuilder func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            content.background(.ultraThinMaterial, in: Circle())
+        }
+        #else
+        content.background(.ultraThinMaterial, in: Circle())
+        #endif
     }
 }
 
 private struct CalculatorKeyPressStyle: ButtonStyle {
+    var soundID: SystemSoundID = 1123
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .opacity(configuration.isPressed ? 0.72 : 1)
-            .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
+            .overlay(Capsule().fill(.white.opacity(configuration.isPressed ? 0.30 : 0)))
+            .scaleEffect(configuration.isPressed ? 1.065 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.65), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { pressed in
+                if pressed { AudioServicesPlaySystemSound(soundID) }
+            }
     }
 }
 
@@ -250,6 +337,10 @@ struct CalculatorButton: View {
     var height: CGFloat? = nil
     let isSelected: Bool
     let action: (String) -> Void
+    private var clickSound: SystemSoundID {
+        if title == "⌫" { return 1155 }
+        return ["AC", "C", "+/−", "%"].contains(title) ? 1156 : 1123
+    }
 
     private var isOperator: Bool {
         ["÷", "×", "−", "+", "="].contains(title)
@@ -296,12 +387,17 @@ struct CalculatorButton: View {
         }.foregroundColor(textColor)
     }
 
-    private var keyFace: some View {
-        label.frame(width: size, height: height ?? size)
-            .background(backgroundColor, in: Capsule())
-            .overlay(Capsule().strokeBorder(
-                LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.05), .white.opacity(0.14)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.7))
+    @ViewBuilder private var keyFace: some View {
+        let content = label.frame(width: size, height: height ?? size)
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.tint(backgroundColor).interactive(), in: Capsule())
+        } else {
+            content.background(backgroundColor, in: Capsule())
+        }
+        #else
+        content.background(backgroundColor, in: Capsule())
+        #endif
     }
 
     var body: some View {
@@ -311,7 +407,7 @@ struct CalculatorButton: View {
             keyFace
                 .contentShape(Capsule())
         }
-        .buttonStyle(CalculatorKeyPressStyle())
+        .buttonStyle(CalculatorKeyPressStyle(soundID: clickSound))
         .accessibilityIdentifier("calculator.key." + title)
         .accessibilityLabel(title == "+/−" ? "Сменить знак" : title == "⌫" ? "Удалить цифру" : title)
         .simultaneousGesture(
@@ -361,4 +457,3 @@ struct HistoryView: View {
         .preferredColorScheme(.dark)
     }
 }
-

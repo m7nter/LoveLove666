@@ -79,7 +79,10 @@ struct ExchangeRateBook {
     private let cacheKey = "calculator.exchangeRates.v2"
     var units: [ConversionUnit] {
         guard category == .currency else { return category.units }
-        let codes = Set(category.units.map(\.id) + book.rates.map(\.quote) + ["USD"])
+        return currencyUnits
+    }
+    var currencyUnits: [ConversionUnit] {
+        let codes = Set(ConversionCategory.currency.units.map(\.id) + book.rates.map(\.quote) + ["USD"])
         return codes.sorted().map {
             ConversionUnit($0, Locale(identifier: "ru_RU").localizedString(forCurrencyCode: $0) ?? $0, 1)
         }

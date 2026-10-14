@@ -94,19 +94,22 @@ jobs:
           xcrun simctl launch "$TEST_SIMULATOR_ID" com.securevault.app --test-calculator
           sleep 3
           xcrun simctl io "$TEST_SIMULATOR_ID" screenshot Calculator-preview.png
-          for mode in scientific conversion; do
+          for mode in scientific conversion units example; do
             xcrun simctl terminate "$TEST_SIMULATOR_ID" com.securevault.app
             xcrun simctl launch "$TEST_SIMULATOR_ID" com.securevault.app --test-calculator --preview-$mode
             sleep 5
             xcrun simctl io "$TEST_SIMULATOR_ID" screenshot Calculator-$mode.png
           done
+          xcrun xcresulttool export attachments --path TestResults.xcresult --output-path UI-previews
 
       - name: Upload calculator preview
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Calculator-preview
-          path: Calculator-*.png
+          path: |
+            Calculator-*.png
+            UI-previews/
 
       - name: Build app
         run: |

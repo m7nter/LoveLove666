@@ -1,6 +1,6 @@
 import Foundation
 
-enum CalculationError: Error { case invalidExpression, domain }
+enum CalculationError: Error { case invalidExpression, domain, undefined }
 
 // Recursive descent preserves precedence and parentheses without evaluating code.
 struct CalculationEngine {
@@ -31,7 +31,7 @@ struct CalculationEngine {
             if take("×") { value *= try power() }
             else if take("÷") {
                 let rhs = try power()
-                guard rhs != 0 else { throw CalculationError.domain }
+                guard rhs != 0 else { throw CalculationError.undefined }
                 value /= rhs
             } else { break }
         }
@@ -66,7 +66,9 @@ struct CalculationEngine {
         switch operation {
         case "x²": value = x * x
         case "x³": value = x * x * x
-        case "1/x": value = 1 / x
+        case "1/x":
+            guard x != 0 else { throw CalculationError.undefined }
+            value = 1 / x
         case "²√x": value = sqrt(x)
         case "³√x": value = cbrt(x)
         case "ln": value = log(x)

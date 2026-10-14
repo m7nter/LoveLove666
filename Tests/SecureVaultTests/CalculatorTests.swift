@@ -19,8 +19,11 @@ final class CalculatorTests: XCTestCase {
         XCTAssertEqual(calculate(["2", "0", "0", "+", "1", "0", "%", "="]).numericValue, 220)
         XCTAssertEqual(calculate(["2", "0", "0", "×", "1", "0", "%", "="]).numericValue, 20)
     }
-    func testDivisionByZeroAndInvalidRootShowError() {
-        XCTAssertEqual(calculate(["4", "÷", "0", "="]).display, "Ошибка")
+    func testDivisionByZeroIsUndefinedAndInvalidRootShowsError() {
+        XCTAssertEqual(calculate(["2", "0", "2", "6", "÷", "0", "="]).display, "Не определено")
+        XCTAssertEqual(calculate(["0", "÷", "0", "="]).display, "Не определено")
+        XCTAssertEqual(calculate(["0", "1/x"]).display, "Не определено")
+        XCTAssertEqual(calculate(["1", "÷", "(", "2", "−", "2", ")", "="]).display, "Не определено")
         XCTAssertEqual(calculate(["9", "+/−", "²√x"]).display, "Ошибка")
         XCTAssertEqual(calculate(["4", "÷", "0", "=", "7"]).numericValue, 7)
     }

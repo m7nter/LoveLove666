@@ -2,75 +2,45 @@ import Foundation
 import ZIPFoundation
 
 struct ZipExporter {
-    static func exportDay(label: String, urls: [URL], includeNotes: Bool = false, generation: Int? = nil, numberingMode: String? = nil) -> URL? {
+    static func exportDay(label: String, urls: [URL], includeNotes: Bool = false, generation: Int? = nil,
+                          numberingMode: String? = nil, metadata: ArchiveMetadataOptions = .standard,
+                          storage: FileStorageManager = .shared) -> URL? {
         guard !urls.isEmpty else { return nil }
-
         let fm = FileManager.default
         let epoch = generation ?? VaultGate.shared.generation
         guard let exportDir = try? PhotoExporter.makeTemporaryExportDirectory(generation: epoch) else { return nil }
         let workDir = exportDir.appendingPathComponent("photos", isDirectory: true)
         let safeLabel = label.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "\\", with: "-")
-        let zipURL = exportDir.appendingPathComponent(String(safeLabel.prefix(100)) + ".zip")
-
+        let zipURL = exportDir.appendingPathComponent((metadata.contains(.date) ? String(safeLabel.prefix(100)) : "Снимки") + ".zip")
         do {
             try PhotoExporter.createProtectedDirectory(at: workDir, generation: epoch)
-
-            var metadataLines: [String] = []
-            metadataLines.append("Экспорт фото — \(label)")
-            metadataLines.append("Всего снимков: \(urls.count)")
-            metadataLines.append("")
-
-            let dateFormatter = DateFormatter()
-            dateFormatter.locale = Locale(identifier: "ru_RU")
-            dateFormatter.dateFormat = "d MMMM yyyy, HH:mm:ss"
-
-            for url in urls {
-                let filename = FileStorageManager.shared.exportName(for: url, numberingMode: numberingMode)
-                let destURL = workDir.appendingPathComponent(filename)
-                let decrypted = try PhotoExporter.jpegData(for: url, includeNotes: includeNotes, generation: epoch)
+            var records: [ExportPhotoRecord] = []
+            for (index, url) in urls.enumerated() {
+                // Filenames must not disclose metadata the user excluded.
+                let filename = String(format: "photo-%04d.jpg", index + 1)
+                let data = try PhotoExporter.jpegData(for: url, includeNotes: includeNotes && metadata.contains(.notes),
+                    generation: epoch, storage: storage, stripEmbeddedMetadata: true)
                 try VaultGate.shared.withAccess(generation: epoch) {
-                    try decrypted.write(to: destURL, options: [.atomic, .completeFileProtection])
-                }
-
-                if let meta = FileStorageManager.shared.loadMeta(for: url) {
-                    let dateStr = dateFormatter.string(from: meta.date)
-                    metadataLines.append("Файл: \(filename)")
-                    metadataLines.append("Папка: \(FileStorageManager.shared.folder(for: url))")
-                    metadataLines.append("Событие: \(meta.eventNumber.map(String.init) ?? "отдельный снимок")")
-                    metadataLines.append("Кадр: \(meta.eventIndex ?? 1) / \(meta.eventCount ?? 1)")
-                    metadataLines.append("Координаты: \(meta.hasLocation == false ? "нет данных" : String(format: "%.6f, %.6f", meta.latitude, meta.longitude))")
-                    metadataLines.append("Карта: \(meta.hasLocation == false ? "нет данных" : "https://maps.google.com/?q=\(meta.latitude),\(meta.longitude)")")
-                    metadataLines.append("Дата съёмки: \(dateStr)")
-                    if includeNotes, let note = meta.note, !note.isEmpty { metadataLines.append("Заметка: \(note)") }
-                    metadataLines.append("")
-                } else {
-                    metadataLines.append("""
-                    Файл: \(filename)
-                    Координаты: нет данных
-
-                    """)
+                    try data.write(to: workDir.appendingPathComponent(filename), options: [.atomic, .completeFileProtection])
+                    records.append(ExportPhotoRecord(filename: filename, meta: storage.loadMeta(for: url), folder: storage.folder(for: url)))
                 }
             }
-
-            let metaFileURL = workDir.appendingPathComponent("metadata.txt")
-            try VaultGate.shared.withAccess(generation: epoch) {
-                try Data(metadataLines.joined(separator: "\n").utf8)
-                    .write(to: metaFileURL, options: [.atomic, .completeFileProtection])
+            if let text = ExportMetadata.archiveText(records, options: metadata) {
+                try VaultGate.shared.withAccess(generation: epoch) {
+                    try Data(text.utf8).write(to: workDir.appendingPathComponent("metadata.txt"), options: [.atomic, .completeFileProtection])
+                }
             }
             let archive = try VaultGate.shared.withAccess(generation: epoch) { try Archive(url: zipURL, accessMode: .create) }
             let contents = try VaultGate.shared.withAccess(generation: epoch) { try fm.contentsOfDirectory(at: workDir, includingPropertiesForKeys: nil) }
-            for fileURL in contents {
+            for fileURL in contents.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                 try VaultGate.shared.withAccess(generation: epoch) { try archive.addEntry(with: fileURL.lastPathComponent, relativeTo: workDir) }
             }
-
             try VaultGate.shared.withAccess(generation: epoch) {
                 try fm.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: zipURL.path)
             }
-
             try? fm.removeItem(at: workDir)
             return try VaultGate.shared.withAccess(generation: epoch) { zipURL }
         } catch {
-            try? fm.removeItem(at: workDir)
             try? fm.removeItem(at: exportDir)
             return nil
         }
