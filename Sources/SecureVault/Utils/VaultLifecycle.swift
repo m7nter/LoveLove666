@@ -10,7 +10,7 @@ enum ActionButtonMode: String, CaseIterable, Identifiable {
         case .camera: return "Открыть камеру"
         case .photos: return "Удалить все фото"
         case .reset: return "Сбросить все данные"
-        case .disable: return "Стереть данные и отключить хранилище"
+        case .disable: return "Стереть данные и сбросить вход"
         }
     }
     var detail: String {
@@ -19,7 +19,7 @@ enum ActionButtonMode: String, CaseIterable, Identifiable {
         case .camera: return "Камера открывается без основного пароля."
         case .photos: return "Удаляются фото, папки снимков, подписи к фото и временные экспорты. Дневник и настройки остаются."
         case .reset: return "Удаляются фото, дневник, метаданные, настройки, пароли, шаблоны и ключ шифрования. Приложение возвращается к первоначальным настройкам."
-        case .disable: return "Удаляются данные и ключ шифрования. Вход по старым кодам отключается. Для нового использования выберите «Создать пустое хранилище» в меню калькулятора и задайте новый код. Удалённые данные не восстанавливаются."
+        case .disable: return "Удаляются данные, ключ шифрования и старые коды. После очистки можно сразу создать новое пустое хранилище. Постоянной блокировки приложения больше нет."
         }
     }
 }
@@ -140,13 +140,12 @@ struct VaultEraseService {
         // Recovery is a full reset, never an unlock of the old material.
         // Keep the deny marker until keys, codes and all files are erased.
         // The pending marker continues to block access if this step fails.
-        if mode == .reset, fm.fileExists(atPath: directories.disabledMarker.path) {
+        if mode != .photos, fm.fileExists(atPath: directories.disabledMarker.path) {
             try fm.removeItem(at: directories.disabledMarker)
         }
         if mode != .photos { defaults.removePersistentDomain(forName: defaultsDomain) }
         defaults.removeObject(forKey: "pendingCaptureEvent")
         defaults.set(generation, forKey: "vaultGeneration")
-        if mode == .disable { defaults.set(true, forKey: "vaultDisabled") }
         if mode == .photos {
             try fm.createDirectory(at: directories.documents.appendingPathComponent("VaultPhotos"), withIntermediateDirectories: true)
         }
@@ -182,7 +181,12 @@ final class VaultLifecycle: ObservableObject {
         if pendingMode != nil { lastError = "Нужно завершить удаление данных." }
         else if hasRecord { lastError = "Запись удаления повреждена. Доступ к приложению закрыт." }
     }
-    func resumePendingErase() { if let mode = pendingMode { erase(mode) } }
+    // Legacy permanent locks and corrupt erase records become a fresh setup.
+    // Complete erasure first; never expose old material by merely clearing flags.
+    func resumePendingErase() {
+        if let mode = pendingMode { erase(mode) }
+        else if disabled || lastError != nil { erase(.reset) }
+    }
     func retry() { if let mode = pendingMode { erase(mode) } }
     func erase(_ mode: ActionButtonMode) {
         guard mode.destructive, !isErasing else { return }
@@ -204,12 +208,12 @@ final class VaultLifecycle: ObservableObject {
                 switch result {
                 case .success:
                     self.pendingMode = nil
-                    if mode == .reset {
+                    if mode != .photos {
                         self.disabled = false
                         SettingsStore.shared.resetToFactory()
                     }
                     NotesManager.shared.lastError = nil
-                    if mode != .disable { VaultGate.shared.allow() }
+                    VaultGate.shared.allow()
                 case .failure(let error):
                     self.lastError = "Удаление не завершено: \(error.localizedDescription)"
                 }

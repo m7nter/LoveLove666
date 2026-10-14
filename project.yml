@@ -21,6 +21,20 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: com.securevault.app
 
 targets:
+  SecureVaultUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/SecureVaultUITests
+    dependencies:
+      - target: SecureVault
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: ""
+        PRODUCT_BUNDLE_IDENTIFIER: com.securevault.uitests
+        PRODUCT_NAME: SecureVaultUITests
+        TEST_TARGET_NAME: SecureVault
   SecureVaultTests:
     type: bundle.unit-test
     platform: iOS
@@ -65,7 +79,9 @@ schemes:
       targets:
         SecureVault: all
         SecureVaultTests: [test]
+        SecureVaultUITests: [test]
     test:
       config: Debug
       targets:
         - SecureVaultTests
+        - SecureVaultUITests

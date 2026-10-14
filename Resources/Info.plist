@@ -4,19 +4,19 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Calculator</string>
+    <string>Калькулятор</string>
 
     <key>CFBundleDisplayName</key>
-    <string>Calculator</string>
+    <string>Калькулятор</string>
 
     <key>CFBundleIdentifier</key>
     <string>com.securevault.app</string>
 
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>3</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>1.0.1</string>
+    <string>1.1.0</string>
 
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>

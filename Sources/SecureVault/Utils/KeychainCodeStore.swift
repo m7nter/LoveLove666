@@ -15,6 +15,11 @@ enum KeychainCodeStore {
 
     static func read(_ account: String, legacyDefault: String = "",
                      accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly) -> String {
+        (try? readChecked(account, legacyDefault: legacyDefault, accessible: accessible)) ?? ""
+    }
+
+    static func readChecked(_ account: String, legacyDefault: String = "",
+                            accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly) throws -> String {
         var request = query(account)
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -22,15 +27,15 @@ enum KeychainCodeStore {
         let status = SecItemCopyMatching(request as CFDictionary, &result)
         if status == errSecSuccess {
             guard let data = result as? Data,
-                  let value = String(data: data, encoding: .utf8) else { return "" }
+                  let value = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadCorruptFile) }
             return value
         }
         // Other Keychain errors must never turn into the known legacy default.
-        guard status == errSecItemNotFound else { return "" }
+        guard status == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         let value = UserDefaults.standard.string(forKey: account) ?? legacyDefault
         guard !value.isEmpty else { return "" }
-        do { try write(value, for: account, accessible: accessible); return value }
-        catch { return "" }
+        try write(value, for: account, accessible: accessible)
+        return value
     }
 
     static func write(_ value: String, for account: String,

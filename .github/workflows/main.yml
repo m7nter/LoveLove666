@@ -85,6 +85,27 @@ jobs:
           path: TestResults.xcresult
           if-no-files-found: ignore
 
+      - name: Capture calculator preview
+        run: |
+          xcrun simctl bootstatus "$TEST_SIMULATOR_ID" -b
+          xcrun simctl status_bar "$TEST_SIMULATOR_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+          xcrun simctl terminate "$TEST_SIMULATOR_ID" com.securevault.app || true
+          xcrun simctl launch "$TEST_SIMULATOR_ID" com.securevault.app --test-calculator
+          sleep 3
+          xcrun simctl io "$TEST_SIMULATOR_ID" screenshot Calculator-preview.png
+          for mode in scientific conversion; do
+            xcrun simctl terminate "$TEST_SIMULATOR_ID" com.securevault.app
+            xcrun simctl launch "$TEST_SIMULATOR_ID" com.securevault.app --test-calculator --preview-$mode
+            sleep 5
+            xcrun simctl io "$TEST_SIMULATOR_ID" screenshot Calculator-$mode.png
+          done
+
+      - name: Upload calculator preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calculator-preview
+          path: Calculator-*.png
+
       - name: Build app
         run: |
           xcodebuild \

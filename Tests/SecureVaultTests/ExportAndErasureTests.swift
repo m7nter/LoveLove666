@@ -65,15 +65,15 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: "vaultGeneration"), 11)
         XCTAssertEqual(keyDeletions, 1)
     }
-    func testDisableLeavesPersistentLockAndDeletesAllMaterial() throws {
+    func testDisableDeletesMaterialAndReturnsToFreshSetup() throws {
         let erase = service()
         try erase.prepare(.disable, generation: 12)
         // The lock is recorded before any photo is deleted.
         XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
         try erase.erase(.disable, generation: 12)
-        XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertFalse(defaults.bool(forKey: "vaultDisabled"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths.pendingMarker.path))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: paths.documents.path), [])
         XCTAssertEqual(keyDeletions, 1)
@@ -91,8 +91,9 @@ final class ExportAndErasureTests: XCTestCase {
         var codesDeleted = 0
         let erase = VaultEraseService(directories: paths, defaults: defaults, defaultsDomain: suite,
             destroyKey: { self.keyDeletions += 1 }, destroyCodes: { codesDeleted += 1 })
-        try erase.prepare(.disable, generation: 20)
-        try erase.erase(.disable, generation: 20)
+        // A completed disable from version 1.0 left these two markers behind.
+        defaults.set(true, forKey: "vaultDisabled")
+        try write("disabled", to: paths.disabledMarker)
         // Simulate material left by another installation before recovery.
         try write("remaining data", to: paths.documents.appendingPathComponent("VaultPhotos/leftover.jpg"))
         try erase.prepare(.reset, generation: 21)
@@ -102,13 +103,12 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths.pendingMarker.path))
         XCTAssertNil(defaults.string(forKey: "pendingEraseMode"))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: paths.documents.path), [])
-        XCTAssertEqual(keyDeletions, 2)
-        XCTAssertEqual(codesDeleted, 2)
+        XCTAssertEqual(keyDeletions, 1)
+        XCTAssertEqual(codesDeleted, 1)
     }
     func testRecoveryFailureKeepsDisableAndPendingReset() throws {
-        let erase = service()
-        try erase.prepare(.disable, generation: 22)
-        try erase.erase(.disable, generation: 22)
+        defaults.set(true, forKey: "vaultDisabled")
+        try write("disabled", to: paths.disabledMarker)
         let failing = service(destroy: { throw CocoaError(.fileWriteNoPermission) })
         try failing.prepare(.reset, generation: 23)
         XCTAssertThrowsError(try failing.erase(.reset, generation: 23))

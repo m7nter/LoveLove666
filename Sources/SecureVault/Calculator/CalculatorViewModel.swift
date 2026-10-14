@@ -1,269 +1,216 @@
 import Foundation
 import Combine
 
-class CalculatorViewModel: ObservableObject {
-    @Published var display: String = "0"
-    @Published var expression: String = ""
-    @Published var shouldUnlock: Bool = false
+final class CalculatorViewModel: ObservableObject {
+    @Published var display = "0"
+    @Published var expression = ""
+    @Published var shouldUnlock = false
     @Published var history: [String] = []
-
-    private var currentInput: String = ""
-    private var storedValue: Double = 0
-    private var currentOperator: String? = nil
-    private var shouldResetDisplay = false
-    private var lastOperator: String? = nil
-    private var lastOperand: Double = 0
+    @Published var radians = false
+    @Published var second = false
+    @Published var memory: Double = 0
+    var allowsVaultEntry = true
+    private var tokens: [String] = []
+    private var input = ""
+    private var replaceInput = false
+    private var finished = false
+    private var repeated: (String, Double)?
     private var pinInput = ""
-    private var pinEntryInvalid = false
+    private var pinEligible = true
+    private let operators = ["+", "−", "×", "÷", "^", "root"]
     private let pinAttemptsKey = "vaultPinAttempts"
     private let pinCooldownKey = "vaultPinCooldownUntil"
-    private let formatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = " "
-        formatter.decimalSeparator = ","
-        formatter.maximumFractionDigits = 6
-        formatter.groupingSize = 3
-        return formatter
-    }()
+    var clearButtonTitle: String { input.isEmpty && tokens.isEmpty ? "AC" : "C" }
+    var activeOperator: String? { input.isEmpty && operators.contains(tokens.last ?? "") ? tokens.last : nil }
+    var numericValue: Double? { Double(input) ?? (try? CalculationEngine.evaluate(tokens)) }
 
-    var clearButtonTitle: String {
-        currentInput.isEmpty && display == "0" ? "AC" : "C"
-    }
-
-    var activeOperator: String? {
-        shouldResetDisplay ? currentOperator : nil
+    static func format(_ value: Double) -> String {
+        guard value.isFinite else { return "Ошибка" }
+        if value != 0 && (abs(value) >= 1e12 || abs(value) < 1e-7) {
+            return String(format: "%.9g", value).replacingOccurrences(of: ".", with: ",")
+        }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal; f.groupingSeparator = " "; f.decimalSeparator = ","
+        f.maximumFractionDigits = 10; f.maximumSignificantDigits = 12; f.usesSignificantDigits = true
+        return f.string(from: NSNumber(value: value)) ?? String(value)
     }
 
     func tap(_ symbol: String) {
+        if symbol.count == 1, "0123456789".contains(symbol) { digit(symbol); return }
         switch symbol {
-        case "0"..."9":
-            handleDigit(symbol)
-        case ",", ".":
-            handleDigit(".")
-        case "+", "−", "×", "÷":
-            handleOperator(symbol)
-        case "=":
-            handleEquals()
-        case "AC":
-            reset()
+        case ",", ".": digit(".")
+        case "AC": reset()
         case "C":
-            clearCurrent()
+            if input.isEmpty { reset() }
+            else { input = ""; display = "0"; pinInput = ""; pinEligible = tokens.isEmpty; replaceInput = false }
         case "⌫":
-            handleBackspace()
-        case "+/−":
-            toggleSign()
+            if !input.isEmpty {
+                input.removeLast()
+                if !pinInput.isEmpty { pinInput.removeLast() }
+                display = input.isEmpty ? "0" : Self.format(Double(input) ?? 0)
+                replaceInput = false
+            }
+        case "=": equals()
+        case "+", "−", "×", "÷", "xʸ", "ʸ√x", "EE":
+            let op = symbol == "xʸ" ? "^" : symbol == "ʸ√x" ? "root" : symbol
+            invalidatePIN(); finished = false; repeated = nil
+            commitInput()
+            if tokens.isEmpty { tokens = ["0"] }
+            if operators.contains(tokens.last ?? "") { tokens.removeLast() }
+            if symbol == "EE" { tokens += ["×", "10", "^"] }
+            else { tokens.append(op) }
+            expression = readable(tokens)
+        case "(":
+            if finished { reset() }
+            invalidatePIN(); commitInput()
+            if let last = tokens.last, last == ")" || Double(last) != nil { tokens.append("×") }
+            tokens.append("("); expression = readable(tokens)
+        case ")":
+            invalidatePIN(); commitInput()
+            let balance = tokens.filter { $0 == "(" }.count - tokens.filter { $0 == ")" }.count
+            if balance > 0, let last = tokens.last, !operators.contains(last), last != "(" {
+                tokens.append(")"); expression = readable(tokens)
+                if let result = try? CalculationEngine.evaluate(tokens) { display = Self.format(result) }
+            }
+        case "+/−": transform { -$0 }
         case "%":
-            handlePercent()
+            invalidatePIN()
+            let x = operand()
+            var result = x / 100
+            if let op = tokens.last, op == "+" || op == "−",
+               let base = try? CalculationEngine.evaluate(Array(tokens.dropLast())) { result *= base }
+            setValue(result)
+        case "2nd": second.toggle(); invalidatePIN()
+        case "Rad", "Deg": radians.toggle(); invalidatePIN()
+        case "mc": memory = 0; invalidatePIN()
+        case "m+": memory += operand(); invalidatePIN()
+        case "m−": memory -= operand(); invalidatePIN()
+        case "mr": setValue(memory); invalidatePIN()
+        case "π": constant(.pi)
+        case "e": constant(M_E)
+        case "Rand": constant(Double.random(in: 0..<1))
         default:
-            break
+            invalidatePIN()
+            let x = operand()
+            do {
+                let result = try CalculationEngine.unary(symbol, value: x, radians: radians)
+                expression = "\(symbol)(\(Self.format(x)))"
+                setValue(result)
+            } catch { showError() }
         }
     }
-
-    private func clearCurrent() {
-        currentInput = ""
-        pinInput = ""
-        pinEntryInvalid = false
-        display = "0"
+    private func digit(_ digit: String) {
+        if finished { reset() }
+        if replaceInput { input = ""; replaceInput = false; pinInput = "" }
+        if tokens.last == ")" { tokens.append("×"); invalidatePIN() }
+        if digit == "." {
+            guard !input.contains("."), !input.contains("e") else { return }
+            invalidatePIN()
+            if input.isEmpty { input = "0" }
+        }
+        guard input.filter({ $0.isNumber }).count < 16 else { return }
+        if input == "0" && digit != "." { input = digit } else { input += digit }
+        if pinEligible && tokens.isEmpty { pinInput += digit }
+        display = Self.format(Double(input) ?? 0)
+        if input.hasSuffix(".") { display += "," }
+        if let dot = input.firstIndex(of: "."), input.hasSuffix("0") {
+            display = Self.format(Double(input[..<dot]) ?? 0) + "," + input[input.index(after: dot)...]
+        }
     }
-
-    private func formatted(_ value: Double) -> String {
-        return formatter.string(from: NSNumber(value: value)) ?? formatResult(value)
+    private func commitInput() {
+        if !input.isEmpty { tokens.append(input); input = "" }
+        replaceInput = false
     }
-
-    private func handleDigit(_ d: String) {
-        if d == "." && currentInput.contains(".") { return }
-        var digitAccepted = true
-        if shouldResetDisplay {
-            if currentOperator == nil { lastOperator = nil; lastOperand = 0 }
-            currentInput = d == "." ? "0." : d
-            pinInput = ""
-            pinEntryInvalid = currentOperator != nil
-            shouldResetDisplay = false
-        } else {
-            if currentInput == "0" && d != "." {
-                currentInput = d
-            } else {
-                if currentInput.count < 9 { currentInput += d }
-                else { digitAccepted = false }
+    private func invalidatePIN() { pinEligible = false; pinInput = "" }
+    private func operand() -> Double {
+        if let value = Double(input) { return value }
+        if tokens.last == ")" {
+            var depth = 0
+            for i in tokens.indices.reversed() {
+                if tokens[i] == ")" { depth += 1 }
+                if tokens[i] == "(" { depth -= 1 }
+                if depth == 0 {
+                    let group = Array(tokens[i...])
+                    if let value = try? CalculationEngine.evaluate(group) {
+                        tokens.removeSubrange(i...); return value
+                    }
+                    break
+                }
             }
         }
-        if d == "." {
-            pinInput = ""
-            pinEntryInvalid = true
-        } else if digitAccepted && currentOperator == nil && !pinEntryInvalid {
-            if pinInput.count < 8 { pinInput += d }
-            else {
-                pinInput = ""
-                pinEntryInvalid = true
-            }
-        }
-        if let val = Double(currentInput) {
-            display = formatted(val) + (currentInput.hasSuffix(".") ? "," : "")
-        } else {
-            display = currentInput.replacingOccurrences(of: ".", with: ",")
-        }
+        return 0
     }
-
-    private func handleBackspace() {
-        if !currentInput.isEmpty {
-            currentInput.removeLast()
-            if !pinInput.isEmpty { pinInput.removeLast() }
-            if currentInput.isEmpty || currentInput == "-" { currentInput = "0" }
-            if let val = Double(currentInput) {
-                display = formatted(val)
-            } else {
-                display = currentInput.replacingOccurrences(of: ".", with: ",")
-            }
-        }
+    private func setValue(_ value: Double) {
+        guard value.isFinite else { showError(); return }
+        input = String(value); display = Self.format(value)
+        replaceInput = true; finished = false
     }
-
-    private func handleOperator(_ op: String) {
-        pinInput = ""
-        pinEntryInvalid = true
-        if !currentInput.isEmpty {
-            storedValue = Double(currentInput) ?? 0
-        }
-        expression = "\(formatted(storedValue))  \(op)"
-        currentOperator = op
-        shouldResetDisplay = true
-        currentInput = ""
+    private func transform(_ action: (Double) -> Double) { invalidatePIN(); setValue(action(operand())) }
+    private func constant(_ value: Double) {
+        if finished { reset() }
+        invalidatePIN(); setValue(value)
     }
-
-    private func handleEquals() {
-        let directEntry = currentOperator == nil && lastOperator == nil && !currentInput.isEmpty
-        if directEntry && !pinEntryInvalid, (try? VaultGate.shared.withAccess { true }) == true {
+    private func equals() {
+        if allowsVaultEntry && pinEligible && tokens.isEmpty && !pinInput.isEmpty,
+           (try? VaultGate.shared.withAccess { true }) == true {
             let store = SettingsStore.shared
             if canTryCode && store.kamikazeCodeEnabled && !store.kamikazeCode.isEmpty
                 && store.kamikazeCode != store.mainCode && pinInput == store.kamikazeCode {
-                VaultLifecycle.shared.erase(.photos)
-                reset()
-                return
+                VaultLifecycle.shared.erase(.photos); reset(); return
             }
-
             if canTryCode && !store.mainCode.isEmpty && pinInput == store.mainCode {
                 UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
                 UserDefaults.standard.removeObject(forKey: pinCooldownKey)
-                shouldUnlock = true
-                reset()
-                return
+                shouldUnlock = true; reset(); return
             }
-            if (4...8).contains(pinInput.count) && pinInput.allSatisfy(\.isNumber) {
-                recordFailedCode()
+            if (4...8).contains(pinInput.count) { recordFailedCode() }
+        }
+        invalidatePIN()
+        if finished, let repeated, let value = Double(input) {
+            tokens = [String(value), repeated.0, String(repeated.1)]; input = ""
+        } else { commitInput() }
+        if tokens.isEmpty { return }
+        // Complete an omitted RHS (5 + = -> 10), but not an incomplete parenthesis.
+        if let last = tokens.last, operators.contains(last), tokens.count >= 2 {
+            tokens.append(tokens[tokens.count - 2])
+        }
+        do {
+            let result = try CalculationEngine.evaluate(tokens)
+            let formula = readable(tokens)
+            if !finished, tokens.count >= 3, let rhs = Double(tokens.last!), operators.contains(tokens[tokens.count - 2]) {
+                repeated = (tokens[tokens.count - 2], rhs)
             }
-            pinInput = ""
-            pinEntryInvalid = true
-        }
-
-        guard let op = currentOperator,
-              let rhs = Double(currentInput) else {
-            // Повторное нажатие "=" — повторяем последнюю операцию
-            if let op = lastOperator {
-                let rhs = lastOperand
-                let result: Double
-                switch op {
-                case "+": result = storedValue + rhs
-                case "−": result = storedValue - rhs
-                case "×": result = storedValue * rhs
-                case "÷": result = rhs != 0 ? storedValue / rhs : 0
-                default: return
-                }
-
-                let entry = "\(formatted(storedValue))  \(op)  \(formatted(rhs)) = \(formatted(result))"
-                history.append(entry)
-                expression = "\(formatted(storedValue))  \(op)  \(formatted(rhs))"
-
-                storedValue = result
-                currentInput = formatResult(result)
-                display = formatted(result)
-                shouldResetDisplay = true
+            if tokens.count > 1 {
+                history.append("\(formula) = \(Self.format(result))")
+                if history.count > 100 { history.removeFirst() }
             }
-            return
-        }
-
-        lastOperator = op
-        lastOperand = rhs
-
-        let result: Double
-        switch op {
-        case "+": result = storedValue + rhs
-        case "−": result = storedValue - rhs
-        case "×": result = storedValue * rhs
-        case "÷": result = rhs != 0 ? storedValue / rhs : 0
-        default: return
-        }
-
-        let entry = "\(formatted(storedValue))  \(op)  \(formatted(rhs)) = \(formatted(result))"
-        history.append(entry)
-        expression = "\(formatted(storedValue))  \(op)  \(formatted(rhs))"
-
-        storedValue = result
-        currentInput = formatResult(result)
-        display = formatted(result)
-        currentOperator = nil
-        shouldResetDisplay = true
+            expression = formula
+            tokens = []; input = String(result); display = Self.format(result)
+            finished = true; replaceInput = true
+        } catch { showError() }
     }
-
-    private func formatResult(_ v: Double) -> String {
-        if v.truncatingRemainder(dividingBy: 1) == 0 && abs(v) < 1e9 {
-            return String(Int(v))
-        }
-        return String(format: "%.6g", v)
+    func useHistory(_ entry: String) {
+        guard let result = entry.components(separatedBy: " = ").last,
+              let value = Double(result.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: ".")) else { return }
+        reset(); invalidatePIN(); setValue(value)
     }
-
+    private func readable(_ values: [String]) -> String {
+        values.map { Double($0).map(Self.format) ?? ($0 == "root" ? "ʸ√" : $0) }.joined(separator: " ")
+    }
+    private func showError() { display = "Ошибка"; input = ""; tokens = []; finished = true; repeated = nil }
     private func reset() {
-        display = "0"
-        expression = ""
-        currentInput = ""
-        storedValue = 0
-        currentOperator = nil
-        shouldResetDisplay = false
-        lastOperator = nil
-        lastOperand = 0
-        pinInput = ""
-        pinEntryInvalid = false
+        display = "0"; expression = ""; tokens = []; input = ""
+        finished = false; replaceInput = false; repeated = nil; pinInput = ""; pinEligible = true
     }
-
-    private func toggleSign() {
-        pinInput = ""
-        pinEntryInvalid = true
-        if let v = Double(currentInput) {
-            let toggled = -v
-            currentInput = formatResult(toggled)
-            display = formatted(toggled)
-        }
-    }
-
-    private func handlePercent() {
-        pinInput = ""
-        pinEntryInvalid = true
-        guard let v = Double(currentInput) else { return }
-        let pct: Double
-        if let op = currentOperator, (op == "+" || op == "−") {
-            // Процент от первого числа (как в стандартном калькуляторе)
-            pct = storedValue * (v / 100)
-        } else {
-            pct = v / 100
-        }
-        currentInput = formatResult(pct)
-        display = formatted(pct)
-    }
-
-    private var canTryCode: Bool {
-        Date().timeIntervalSince1970 >= UserDefaults.standard.double(forKey: pinCooldownKey)
-    }
-
+    private var canTryCode: Bool { Date().timeIntervalSince1970 >= UserDefaults.standard.double(forKey: pinCooldownKey) }
     private func recordFailedCode() {
         let now = Date().timeIntervalSince1970
         guard canTryCode else { return }
-        var attempts = (UserDefaults.standard.array(forKey: pinAttemptsKey) as? [TimeInterval] ?? [])
-            .filter { now - $0 < 60 }
+        var attempts = (UserDefaults.standard.array(forKey: pinAttemptsKey) as? [TimeInterval] ?? []).filter { now - $0 < 60 }
         attempts.append(now)
         if attempts.count >= 6 {
             UserDefaults.standard.set(now + 60, forKey: pinCooldownKey)
             UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
-        } else {
-            UserDefaults.standard.set(attempts, forKey: pinAttemptsKey)
-        }
+        } else { UserDefaults.standard.set(attempts, forKey: pinAttemptsKey) }
     }
 }
