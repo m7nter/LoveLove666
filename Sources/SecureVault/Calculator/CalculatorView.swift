@@ -140,7 +140,7 @@ struct CalculatorView: View {
     private var toolbar: some View {
         HStack {
             Button { showHistory = true } label: {
-                Image(systemName: "clock.arrow.circlepath").font(.system(size: 22, weight: .medium))
+                Image(systemName: "clock").font(.system(size: 22, weight: .medium))
                     .frame(width: 44, height: 44)
             }.buttonStyle(.plain).modifier(CalculatorTopSurface()).accessibilityLabel("История")
             Spacer()
@@ -277,10 +277,10 @@ struct CalculatorButton: View {
         Group {
             if let symbolName {
                 Image(systemName: symbolName)
-                    .font(.system(size: min(size * 0.40, (height ?? size) * 0.58), weight: .medium))
+                    .font(.system(size: min(size * (title == "⌫" ? 0.40 : 0.43), (height ?? size) * 0.58), weight: .medium))
             } else {
                 Text(title)
-                    .font(.system(size: min(size * 0.43, (height ?? size) * 0.65), weight: .regular))
+                    .font(.system(size: min(size * 0.43, (height ?? size) * 0.65), weight: .medium))
                     .minimumScaleFactor(0.65).lineLimit(1)
             }
         }.foregroundColor(textColor)
@@ -351,3 +351,4 @@ struct HistoryView: View {
         .preferredColorScheme(.dark)
     }
 }
+
