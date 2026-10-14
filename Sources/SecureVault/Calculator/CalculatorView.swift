@@ -411,10 +411,11 @@ struct CalculatorButton: View {
         .accessibilityIdentifier("calculator.key." + title)
         .accessibilityLabel(title == "+/−" ? "Сменить знак" : title == "⌫" ? "Удалить цифру" : title)
         .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.5)
+            title == "⌫" || title == "C" ? LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in
-                    if title == "⌫" || title == "C" { action("AC") }
+                    action("AC")
                 }
+            : nil
         )
     }
 }

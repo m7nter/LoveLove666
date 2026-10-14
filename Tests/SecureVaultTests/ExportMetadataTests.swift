@@ -92,4 +92,53 @@ final class ExportMetadataTests: XCTestCase {
         XCTAssertEqual(groups.last?.urls, [a, b])
         XCTAssertEqual(GalleryGrouping.days(groups).flatMap(\.urls).count, 3)
     }
+    func testWatermarkEditorAndNotePreservePortraitAndLandscapePixels() throws {
+        for size in [CGSize(width: 400, height: 300), CGSize(width: 300, height: 400)] {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 2
+            let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                UIColor.blue.setFill(); UIRectFill(CGRect(origin: .zero, size: size))
+            }
+            let marked = WatermarkRenderer.apply(to: image, location: nil, heading: nil)
+            let edited = AnnotationRenderer.render(image: marked, shapes: [])
+            let noted = try ExportNoteRenderer.apply(to: edited, note: "Проверка")
+            for result in [marked, edited, noted] {
+                XCTAssertEqual(result.size, image.size)
+                XCTAssertEqual(result.cgImage?.width, image.cgImage?.width)
+                XCTAssertEqual(result.cgImage?.height, image.cgImage?.height)
+            }
+        }
+    }
+    func testSanitizedLegacyJPEGDoesNotRetainGPSDateOrCameraIdentity() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 300), format: format).image { _ in
+            UIColor.blue.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 400, height: 300))
+        }
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil))
+        let attributes: [CFString: Any] = [
+            kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 55.7, kCGImagePropertyGPSLatitudeRef: "N",
+                                          kCGImagePropertyGPSLongitude: 67.7, kCGImagePropertyGPSLongitudeRef: "E"],
+            kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: "2001:02:03 04:05:06", kCGImagePropertyExifUserComment: "private comment"],
+            kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "private camera", kCGImagePropertyTIFFArtist: "private owner"]
+        ]
+        CGImageDestinationAddImage(destination, try XCTUnwrap(image.cgImage), attributes as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let photo = root.appendingPathComponent("legacy.jpg")
+        try (data as Data).write(to: photo)
+        let storage = FileStorageManager(directory: root)
+        let sanitized = try PhotoExporter.jpegData(for: photo, includeNotes: false,
+            generation: VaultGate.shared.generation, storage: storage, stripEmbeddedMetadata: true)
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(sanitized as CFData, nil))
+        let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any])
+        XCTAssertTrue((properties[kCGImagePropertyGPSDictionary as String] as? [String: Any] ?? [:]).isEmpty)
+        let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
+        let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
+        XCTAssertNil(exif["DateTimeOriginal"]); XCTAssertNil(exif["UserComment"])
+        XCTAssertNil(tiff["Make"]); XCTAssertNil(tiff["Artist"])
+        XCTAssertEqual(UIImage(data: sanitized)?.size, image.size)
+        XCTAssertFalse(sanitized == data as Data)
+    }
 }

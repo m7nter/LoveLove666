@@ -14,7 +14,7 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         app.buttons["calculator.menu"].tap()
         XCTAssertTrue(app.buttons["Стандартный"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Хранилище"].exists)
-        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS '1.1.'")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '1.1.'")).firstMatch.exists)
         keepScreenshot("Calculator-menu")
     }
     func testConversionPickerHasHorizontalCategoriesAndSearch() {
@@ -29,7 +29,7 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         let euro = app.buttons["conversion.unit.EUR"]
         XCTAssertTrue(euro.waitForExistence(timeout: 5)); euro.tap()
         XCTAssertTrue(app.staticTexts["calculator.converted"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Frankfurter'")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Frankfurter'")).firstMatch.exists)
     }
     func testEventCoverOpensItsTwoPhotosWithoutMixingEvents() {
         let app = launch(["--test-gallery"])

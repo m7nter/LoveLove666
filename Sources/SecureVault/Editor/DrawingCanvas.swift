@@ -31,7 +31,7 @@ enum AnnotationRenderer {
     static func render(image: UIImage, shapes: [DrawnShape]) -> UIImage {
         let blur = shapes.contains { $0.tool == .blur } ? blurred(image) : nil
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
+        format.scale = image.scale
         format.opaque = true
         return UIGraphicsImageRenderer(size: image.size, format: format).image { renderer in
             let bounds = CGRect(origin: .zero, size: image.size)
@@ -580,4 +580,3 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
         }
     }
 }
-

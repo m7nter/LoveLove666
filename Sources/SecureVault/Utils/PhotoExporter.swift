@@ -74,6 +74,7 @@ enum PhotoExporter {
 
     static func jpegData(for url: URL, includeNotes: Bool, generation: Int,
                          storage: FileStorageManager = .shared, stripEmbeddedMetadata: Bool = false) throws -> Data {
+        try autoreleasepool {
         let snapshot: (Data, String?) = try VaultGate.shared.withAccess(generation: generation) {
             guard let data = storage.decryptedData(for: url) else { throw PhotoExportError.unreadableImage }
             return (data, storage.loadMeta(for: url)?.note)
@@ -81,9 +82,20 @@ enum PhotoExporter {
         let note = includeNotes ? snapshot.1?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" : ""
         guard !note.isEmpty || stripEmbeddedMetadata else { return snapshot.0 }
         guard let image = UIImage(data: snapshot.0) else { throw PhotoExportError.unreadableImage }
-        let result = note.isEmpty ? image : try ExportNoteRenderer.apply(to: image, note: note)
+        var result = note.isEmpty ? image : try ExportNoteRenderer.apply(to: image, note: note)
+        if stripEmbeddedMetadata {
+            // A fresh bitmap cannot inherit EXIF, GPS, XMP, comments or camera
+            // identity from an old JPEG. Drawing applies its orientation.
+            let source = result
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = source.scale; format.opaque = true; format.preferredRange = .standard
+            result = UIGraphicsImageRenderer(size: source.size, format: format).image { _ in
+                source.draw(in: CGRect(origin: .zero, size: source.size))
+            }
+        }
         guard let data = result.jpegData(compressionQuality: 0.95) else { throw CocoaError(.fileWriteUnknown) }
         return try VaultGate.shared.withAccess(generation: generation) { data }
+        }
     }
     static func copies(of urls: [URL], includeNotes: Bool, generation: Int, numberingMode: String? = nil) throws -> [URL] {
         let fm = FileManager.default
