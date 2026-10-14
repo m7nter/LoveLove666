@@ -39,6 +39,7 @@ final class CalculatorTests: XCTestCase {
     func testMemoryAndClearEntry() {
         XCTAssertEqual(calculate(["8", "m+", "AC", "2", "m−", "mr"]).numericValue, 6)
         XCTAssertEqual(calculate(["8", "+", "9", "C", "2", "="]).numericValue, 10)
+        XCTAssertEqual(calculate(["(", "2", "+", "3", ")", "m+", "×", "2", "="]).numericValue, 10)
     }
     func testTemperatureAndReverseConversion() throws {
         let units = ConversionCategory.temperature.units

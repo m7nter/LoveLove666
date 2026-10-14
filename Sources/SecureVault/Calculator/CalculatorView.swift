@@ -173,7 +173,7 @@ struct ConversionPicker: View {
                         ForEach(ConversionCategory.allCases) { Text($0.rawValue).tag($0) }
                     }
                 }
-                ForEach(model.category.units.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.id.localizedCaseInsensitiveContains(search) }) { unit in
+                ForEach(model.units.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.id.localizedCaseInsensitiveContains(search) }) { unit in
                     Button {
                         if source { model.from = unit.id } else { model.to = unit.id }
                         dismiss()

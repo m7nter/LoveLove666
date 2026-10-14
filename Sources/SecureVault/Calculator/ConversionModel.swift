@@ -77,6 +77,13 @@ struct ExchangeRateBook {
     @Published private(set) var loading = false
     @Published private(set) var offline = false
     private let cacheKey = "calculator.exchangeRates.v2"
+    var units: [ConversionUnit] {
+        guard category == .currency else { return category.units }
+        let codes = Set(category.units.map(\.id) + book.rates.map(\.quote) + ["USD"])
+        return codes.sorted().map {
+            ConversionUnit($0, Locale(identifier: "ru_RU").localizedString(forCurrencyCode: $0) ?? $0, 1)
+        }
+    }
     init() {
         if let data = UserDefaults.standard.data(forKey: cacheKey),
            let rates = try? JSONDecoder().decode([ExchangeRate].self, from: data) { book = ExchangeRateBook(rates: rates) }

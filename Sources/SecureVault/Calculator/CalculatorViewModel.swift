@@ -5,7 +5,9 @@ final class CalculatorViewModel: ObservableObject {
     @Published var display = "0"
     @Published var expression = ""
     @Published var shouldUnlock = false
-    @Published var history: [String] = []
+    @Published var history: [String] = UserDefaults.standard.stringArray(forKey: "calculator.history") ?? [] {
+        didSet { UserDefaults.standard.set(history, forKey: "calculator.history") }
+    }
     @Published var radians = false
     @Published var second = false
     @Published var memory: Double = 0
@@ -83,9 +85,9 @@ final class CalculatorViewModel: ObservableObject {
         case "2nd": second.toggle(); invalidatePIN()
         case "Rad", "Deg": radians.toggle(); invalidatePIN()
         case "mc": memory = 0; invalidatePIN()
-        case "m+": memory += operand(); invalidatePIN()
-        case "m−": memory -= operand(); invalidatePIN()
-        case "mr": setValue(memory); invalidatePIN()
+        case "m+": memory += operand(consumingGroup: false); invalidatePIN()
+        case "m−": memory -= operand(consumingGroup: false); invalidatePIN()
+        case "mr": _ = operand(); setValue(memory); invalidatePIN()
         case "π": constant(.pi)
         case "e": constant(M_E)
         case "Rand": constant(Double.random(in: 0..<1))
@@ -122,7 +124,7 @@ final class CalculatorViewModel: ObservableObject {
         replaceInput = false
     }
     private func invalidatePIN() { pinEligible = false; pinInput = "" }
-    private func operand() -> Double {
+    private func operand(consumingGroup: Bool = true) -> Double {
         if let value = Double(input) { return value }
         if tokens.last == ")" {
             var depth = 0
@@ -132,7 +134,8 @@ final class CalculatorViewModel: ObservableObject {
                 if depth == 0 {
                     let group = Array(tokens[i...])
                     if let value = try? CalculationEngine.evaluate(group) {
-                        tokens.removeSubrange(i...); return value
+                        if consumingGroup { tokens.removeSubrange(i...) }
+                        return value
                     }
                     break
                 }
