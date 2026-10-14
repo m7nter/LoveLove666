@@ -33,7 +33,7 @@ struct CalculatorView: View {
                     conversionDisplay(size: min(58, width * 0.70))
                         .padding(.horizontal, inset + 3).padding(.bottom, 12)
                 } else {
-                    numberDisplay(size: min(68, width * 0.78))
+                    numberDisplay(size: scientific ? min(46, width * 0.54) : min(68, width * 0.78))
                         .padding(.horizontal, inset + 3).padding(.bottom, 18)
                 }
                 VStack(spacing: gap) {
@@ -99,7 +99,7 @@ struct CalculatorView: View {
             }.frame(height: 18)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Spacer(minLength: 0)
-                Text(vm.numericValue.flatMap(conversion.result).map(CalculatorViewModel.format) ?? (vm.display == "0" ? "0" : "—"))
+                Text(vm.numericValue.flatMap(conversion.result).map(formatConversion) ?? (vm.display == "0" ? "0" : "—"))
                     .font(.system(size: size)).foregroundStyle(.gray).lineLimit(1).minimumScaleFactor(0.3)
                     .accessibilityIdentifier("calculator.converted")
                 unitButton(conversion.to, source: false)
@@ -113,6 +113,16 @@ struct CalculatorView: View {
                 }
             }.padding(.top, 3)
         }.task { if conversion.category == .currency { await conversion.reload() } }
+    }
+    private func formatConversion(_ value: Double) -> String {
+        guard conversion.category == .currency else { return CalculatorViewModel.format(value) }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = conversion.to
+        formatter.currencySymbol = ""
+        formatter.locale = Locale(identifier: "ru_RU")
+        return formatter.string(from: NSNumber(value: value))?.trimmingCharacters(in: .whitespaces)
+            ?? CalculatorViewModel.format(value)
     }
     private func unitButton(_ title: String, source: Bool) -> some View {
         Button { selectingSource = source } label: {
