@@ -65,11 +65,13 @@ Windows проверена структура workflow и ресурсов; сб
 
 ```sh
 xcodegen generate --spec project.yml
-xcodebuild test -project SecureVault.xcodeproj -scheme SecureVault -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.5' CODE_SIGNING_ALLOWED=NO
+xcrun simctl list devices available
+# Set SIMULATOR_ID to an available iPhone simulator UDID from the command above.
+xcodebuild test -project SecureVault.xcodeproj -scheme SecureVault -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIMULATOR_ID" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY="-"
 xcodebuild -project SecureVault.xcodeproj -scheme SecureVault -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions `.github/workflows/main.yml` генерирует проект, собирает приложение и упаковывает неподписанный IPA. XCTest в этом workflow сейчас не запускается. `.github/workflows/build.yml` служит ручным входом в тот же процесс и не запускает дополнительную сборку при каждом push.
+GitHub Actions `.github/workflows/main.yml` генерирует проект, запускает XCTest на доступном iPhone-симуляторе, собирает приложение и упаковывает неподписанный IPA. Для доступа к Keychain тестовый хост подписывается ad-hoc с отдельными entitlements только для симулятора. `.github/workflows/build.yml` служит ручным входом в тот же процесс и не запускает дополнительную сборку при каждом push.
 
 Для обычного обновления репозитория загрузите содержимое архива в корень с заменой файлов. В корне должны находиться `Sources`, `Resources`, `Tests`, `.github`, `Package.swift` и `project.yml`; внешнюю папку `LoveShop-main` загружать не нужно. Имена прежних исходников сохранены, поэтому старые определения классов будут заменены, а не продублированы. Не пропускайте скрытую папку `.github`.
 
@@ -90,3 +92,4 @@ GitHub Actions `.github/workflows/main.yml` генерирует проект, �
 - GPS в движении и в условиях плохого приёма, расход батареи.
 - заметки с несколькими строками, оба способа экспорта, включение/отключение полосы и повторная выгрузка;
 - каждое действие Action Button на тестовых материалах: неверный URL, старый URL камеры, удаление во время редактора/экспорта, повторный запуск и создание пустого хранилища через меню калькулятора после блокировки, повторный запуск с новым кодом.
+
