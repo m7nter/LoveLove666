@@ -492,8 +492,9 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
                         refreshDraft = true
                     }
                 } else {
+                    let start = draft?.start ?? p
                     draft?.end = p
-                    draft?.points = [draft?.start ?? p, p]
+                    draft?.points = [start, p]
                     refreshDraft = true
                 }
                 if recognizer.state == .ended, let shape = draft {
@@ -579,3 +580,4 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
         }
     }
 }
+
