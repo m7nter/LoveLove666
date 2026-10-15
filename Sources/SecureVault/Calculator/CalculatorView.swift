@@ -34,8 +34,8 @@ struct CalculatorView: View {
                     conversionDisplay(size: min(58, width * 0.70))
                         .padding(.horizontal, inset + 3).padding(.bottom, 12)
                 } else {
-                    numberDisplay(size: scientific ? min(46, width * 0.54) : min(84, width * 0.98))
-                        .padding(.horizontal, inset + 3).padding(.bottom, 18)
+                    numberDisplay(size: scientific ? min(46, width * 0.54) : min(68, width * 0.80))
+                        .padding(.horizontal, inset).padding(.bottom, scientific ? 12 : 7)
                 }
                 VStack(spacing: gap) {
                     if scientific { scienceGrid(width: geometry.size.width - inset * 2, height: keyHeight, gap: gap) }
@@ -87,6 +87,7 @@ struct CalculatorView: View {
                     .lineLimit(1).minimumScaleFactor(0.5)
             }
             Text(vm.display).font(.system(size: size, weight: .regular, design: .default))
+                .monospacedDigit()
                 .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.3)
                 .modifier(CalculatorNumberTransition())
                 .accessibilityIdentifier("calculator.display")
@@ -310,9 +311,7 @@ private struct CalculatorTopSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            content.background {
-                Circle().fill(.clear).glassEffect(.regular.interactive(), in: Circle())
-            }
+            content.glassEffect(.regular.interactive(), in: Circle())
         } else {
             content.background(.ultraThinMaterial, in: Circle())
         }
@@ -395,11 +394,7 @@ struct CalculatorButton: View {
         let content = label.frame(width: size, height: height ?? size)
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            // Keep text and symbols above the glass backdrop. Putting the
-            // entire label into the effect can drop glyphs after state changes.
-            Color.clear.frame(width: size, height: height ?? size)
-                .glassEffect(.regular.tint(backgroundColor).interactive(), in: Capsule())
-                .overlay(content)
+            content.glassEffect(.regular.tint(backgroundColor).interactive(), in: Capsule())
         } else {
             content.background(backgroundColor, in: Capsule())
         }

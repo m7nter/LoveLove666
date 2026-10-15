@@ -13,6 +13,7 @@ final class CalculatorTests: XCTestCase {
     }
     func testLongChainAndRepeatedEquals() {
         XCTAssertEqual(calculate(["8", "+", "2", "−", "3", "="]).numericValue, 7)
+        XCTAssertEqual(calculate(["8", "+", "2", "−", "3", "="]).clearButtonTitle, "AC")
         XCTAssertEqual(calculate(["2", "+", "3", "=", "=", "="]).numericValue, 11)
     }
     func testPercentOfLeftOperand() {

@@ -22,7 +22,7 @@ final class CalculatorViewModel: ObservableObject {
     private let operators = ["+", "−", "×", "÷", "^", "root"]
     private let pinAttemptsKey = "vaultPinAttempts"
     private let pinCooldownKey = "vaultPinCooldownUntil"
-    var clearButtonTitle: String { input.isEmpty && tokens.isEmpty ? "AC" : "C" }
+    var clearButtonTitle: String { finished || (input.isEmpty && tokens.isEmpty) ? "AC" : "C" }
     var activeOperator: String? { input.isEmpty && operators.contains(tokens.last ?? "") ? tokens.last : nil }
     var numericValue: Double? { Double(input) ?? (try? CalculationEngine.evaluate(tokens)) }
 
