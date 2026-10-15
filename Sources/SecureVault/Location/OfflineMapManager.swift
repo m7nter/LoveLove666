@@ -129,7 +129,7 @@ final class OfflineMapManager: ObservableObject {
             guard pack.state != .invalid, let context = context(pack) else { return nil }
             let progress = pack.progress
             let dataset = OfflinePlacesStore.shared.dataset(for: context.region.id)
-            let mapReady = pack.state == .complete
+            let mapReady = pack.state == .complete && progress.countOfTilesCompleted > 0
             let ready = mapReady && dataset?.isCurrent == true
             let status: String
             if blockedPacks.contains(context.region.id) { status = "Достигнут лимит размера. Удалите и выберите меньшую детализацию." }
@@ -166,7 +166,7 @@ final class OfflineMapManager: ObservableObject {
         let generation = VaultGate.shared.generation
         MLNOfflineStorage.shared.addPack(for: definition, withContext: data) { [weak self] pack, error in
             guard (try? VaultGate.shared.withAccess(generation: generation) { true }) == true else {
-                if let pack { MLNOfflineStorage.shared.removePack(pack) { _ in } }; return
+                if let pack, pack.state != .invalid { MLNOfflineStorage.shared.removePack(pack) { _ in } }; return
             }
             guard let self, let pack, error == nil else { self?.error = "Не удалось создать загрузку карты."; return }
             pack.resume(); self.refresh(); self.downloadPlaces(region)
@@ -177,7 +177,7 @@ final class OfflineMapManager: ObservableObject {
         guard !blockedPacks.contains(id) else { error = "Выберите меньшую детализацию после удаления этой загрузки."; return }
         if let pack = pack(for: id), let context = context(pack) {
             (MLNOfflineStorage.shared.packs ?? []).filter { $0 !== pack && $0.state == .active }.forEach { $0.suspend() }
-            if pack.state != .complete { pack.resume() }
+            if pack.state != .complete || pack.progress.countOfTilesCompleted == 0 { pack.resume() }
             if OfflinePlacesStore.shared.dataset(for: id)?.isCurrent != true { downloadPlaces(context.region) }
         }
         refresh()

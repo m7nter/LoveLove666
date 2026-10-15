@@ -59,11 +59,12 @@ targets:
     sources:
       - path: Sources/SecureVault
         type: group
-    resources:
       - path: Resources/Assets.xcassets
-      - path: Resources/Info.plist
+        buildPhase: resources
       - path: Resources/OfflineRegions.json
+        buildPhase: resources
       - path: Resources/MapLibre-LICENSE.txt
+        buildPhase: resources
     dependencies:
       - package: ZIPFoundation
       - package: MapLibre

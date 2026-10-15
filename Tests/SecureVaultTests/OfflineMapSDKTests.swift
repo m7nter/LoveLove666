@@ -12,12 +12,13 @@ final class OfflineMapSDKTests: XCTestCase {
         OfflineMapHTTPFixture.setOffline(false)
         let url = URL(string: "https://offline-test.invalid/style.json")!
         let region = MLNTilePyramidOfflineRegion(styleURL: url,
-            bounds: MLNCoordinateBounds(sw: .init(latitude: -0.1, longitude: -0.1), ne: .init(latitude: 0.1, longitude: 0.1)), fromZoomLevel: 0, toZoomLevel: 0)
+            bounds: MLNCoordinateBounds(sw: .init(latitude: -0.1, longitude: -0.1), ne: .init(latitude: 0.1, longitude: 0.1)), fromZoomLevel: 0, toZoomLevel: 2)
         let context = Data("offline-sdk-fixture".utf8)
         let downloaded = expectation(description: "All map resources downloaded")
         var fulfilled = false
         let observer = NotificationCenter.default.addObserver(forName: .init("MLNOfflinePackProgressChanged"), object: nil, queue: .main) { note in
-            guard let pack = note.object as? MLNOfflinePack, pack.context == context, pack.state == .complete, !fulfilled else { return }
+            guard let pack = note.object as? MLNOfflinePack, pack.context == context,
+                  pack.state == .complete, pack.progress.countOfTilesCompleted > 0, !fulfilled else { return }
             fulfilled = true; downloaded.fulfill()
         }
         var savedPack: MLNOfflinePack?
@@ -29,6 +30,7 @@ final class OfflineMapSDKTests: XCTestCase {
         let pack = try XCTUnwrap(savedPack)
         XCTAssertEqual(pack.state, .complete)
         XCTAssertGreaterThan(pack.progress.countOfTilesCompleted, 0)
+        XCTAssertTrue(OfflineMapHTTPFixture.requestedPaths().contains { $0.hasSuffix(".png") })
         OfflineMapHTTPFixture.setOffline(true)
         let styleLoaded = expectation(description: "Saved map style loads with HTTP disabled")
         let delegate = OfflineStyleDelegate { styleLoaded.fulfill() }
@@ -37,6 +39,7 @@ final class OfflineMapSDKTests: XCTestCase {
         map.setCenter(.init(latitude: 0, longitude: 0), zoomLevel: 0, animated: false)
         wait(for: [styleLoaded], timeout: 10)
         XCTAssertNotNil(map.style)
+        XCTAssertNotNil(map.style?.layer(withIdentifier: "test"))
         map.delegate = nil
         let removed = expectation(description: "Remove fixture pack")
         MLNOfflineStorage.shared.removePack(pack) { error in XCTAssertNil(error); removed.fulfill() }
@@ -57,17 +60,19 @@ private final class OfflineStyleDelegate: NSObject, MLNMapViewDelegate {
 private final class OfflineMapHTTPFixture: URLProtocol {
     private static let lock = NSLock()
     private static var offline = false
+    private static var paths: [String] = []
     static func setOffline(_ value: Bool) { lock.lock(); offline = value; lock.unlock() }
+    static func requestedPaths() -> [String] { lock.lock(); defer { lock.unlock() }; return paths }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "offline-test.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        Self.lock.lock(); let offline = Self.offline; Self.lock.unlock()
+        Self.lock.lock(); let offline = Self.offline; Self.paths.append(request.url?.path ?? ""); Self.lock.unlock()
         if offline { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)); return }
         let url = request.url!
         let data: Data
         if url.path == "/style.json" {
             data = Data("""
-            {"version":8,"sources":{"test":{"type":"raster","tiles":["https://offline-test.invalid/{z}/{x}/{y}.png"],"tileSize":256,"minzoom":0,"maxzoom":0}},"layers":[{"id":"test","type":"raster","source":"test"}]}
+            {"version":8,"sources":{"test":{"type":"raster","tiles":["https://offline-test.invalid/{z}/{x}/{y}.png"],"tileSize":256,"minzoom":0,"maxzoom":2}},"layers":[{"id":"test","type":"raster","source":"test"}]}
             """.utf8)
         } else {
             // A valid 256x256 PNG tile, no network service is involved.
