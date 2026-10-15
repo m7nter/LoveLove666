@@ -76,9 +76,10 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         if app.alerts.firstMatch.waitForExistence(timeout: 2) { app.alerts.buttons["Позже"].tap() }
         XCTAssertEqual(enabled.value as? String, "1")
         keepScreenshot("Restricted-places-settings")
-        let radius = app.staticTexts["До границы: 65 м"].firstMatch
-        for _ in 0..<4 { if radius.isHittable { break }; app.swipeUp() }
+        let radius = app.steppers["settings.restrictedPlaces.radius.playground"]
+        for _ in 0..<4 { if radius.exists { break }; app.swipeUp() }
         XCTAssertTrue(radius.exists)
+        XCTAssertEqual(radius.value as? String, "65")
         keepScreenshot("Restricted-places-distances")
         for _ in 0..<4 { if enabled.isHittable { break }; app.swipeDown() }
         enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()

@@ -41,6 +41,7 @@ struct RestrictedPlacesSettingsView: View {
                                 set: { store.restrictedPlaces.radii[kind.rawValue] = Double($0) }), in: 5...1000, step: 5) {
                                 Text("До границы: \(Int(store.restrictedPlaces.radius(for: kind))) м").font(.subheadline).foregroundColor(.secondary)
                             }
+                            .accessibilityIdentifier("settings.restrictedPlaces.radius." + kind.rawValue)
                         }
                     }.padding(.vertical, 3)
                 }

@@ -113,13 +113,14 @@ struct VaultEraseService {
         if mode == .disable { try Data("disabled".utf8).write(to: directories.disabledMarker, options: .atomic) }
     }
 
-    func erase(_ mode: ActionButtonMode, generation: Int) throws {
+    func prepareCryptographicReset(_ mode: ActionButtonMode) throws {
+        if mode == .reset || mode == .disable { try destroyKey(); try destroyCodes() }
+    }
+
+    func erase(_ mode: ActionButtonMode, generation: Int, cryptographicResetPrepared: Bool = false) throws {
         guard mode.destructive else { throw CocoaError(.featureUnsupported) }
         // Destroy the key first; a failed deletion keeps the application closed.
-        if mode == .reset || mode == .disable {
-            try destroyKey()
-            try destroyCodes()
-        }
+        if !cryptographicResetPrepared { try prepareCryptographicReset(mode) }
         var failures: [Error] = []
         func remove(_ url: URL) {
             guard fm.fileExists(atPath: url.path) else { return }
@@ -203,14 +204,38 @@ final class VaultLifecycle: ObservableObject {
             destroyCodes: { try KeychainCodeStore.deleteAll() },
             preservedSupportEntries: [Bundle.main.bundleIdentifier ?? "com.securevault.app"])
         NotificationCenter.default.post(name: .vaultWillErase, object: nil)
-        do { try service.prepare(mode, generation: epoch) }
+        do {
+            try service.prepare(mode, generation: epoch)
+        }
         catch { isErasing = false; lastError = "Не удалось подготовить удаление: \(error.localizedDescription)"; return }
-        OfflineMapManager.shared.prepareForErase(mode) { mapError in
-            if let mapError {
-                self.isErasing = false; self.lastError = "Не удалось очистить офлайн-карты: \(mapError.localizedDescription)"; return
+        // Let app initialization finish before accessing the protected Keychain.
+        DispatchQueue.main.async {
+            do {
+                // A map error must never preserve a usable vault key.
+                try service.prepareCryptographicReset(mode)
+            } catch {
+                self.isErasing = false
+                self.lastError = "Не удалось удалить ключи входа: \(error.localizedDescription)"
+                return
             }
-        self.queue.async {
-            let result = Result { try VaultGate.shared.duringErase { try service.erase(mode, generation: epoch) } }
+            OfflineMapManager.shared.prepareForErase(mode) { mapError in
+                if let mapError {
+                    self.isErasing = false
+                    self.lastError = "Не удалось очистить офлайн-карты: \(mapError.localizedDescription)"
+                    return
+                }
+                self.erasePreparedFiles(service, mode: mode, generation: epoch)
+            }
+        }
+    }
+
+    private func erasePreparedFiles(_ service: VaultEraseService, mode: ActionButtonMode, generation: Int) {
+        queue.async {
+            let result = Result {
+                try VaultGate.shared.duringErase {
+                    try service.erase(mode, generation: generation, cryptographicResetPrepared: true)
+                }
+            }
             DispatchQueue.main.async {
                 self.isErasing = false
                 switch result {
@@ -226,7 +251,6 @@ final class VaultLifecycle: ObservableObject {
                     self.lastError = "Удаление не завершено: \(error.localizedDescription)"
                 }
             }
-        }
         }
     }
 }
