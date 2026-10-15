@@ -303,24 +303,11 @@ struct ConversionPicker: View {
                     LazyVStack(spacing: 0) {
                         ForEach(rows) { choice in
                             let selected = choice.category == model.category && choice.unit.id == selectedID
-                            Button {
+                            ConversionRow(choice: choice, selected: selected) {
                                 if choice.category != model.category { model.select(choice.category) }
                                 if source { model.from = choice.unit.id } else { model.to = choice.unit.id }
                                 dismiss()
-                            } label: {
-                                HStack(alignment: .center, spacing: 8) {
-                                    Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold))
-                                        .frame(width: 20).opacity(selected ? 1 : 0)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(choice.unit.name).font(.system(size: 17, weight: .medium))
-                                        Text(choice.unit.id).font(.system(size: 18, weight: .semibold))
-                                            .foregroundStyle(selected ? .orange : .secondary)
-                                    }
-                                    Spacer(minLength: 0)
-                                }.foregroundStyle(selected ? .orange : .white)
-                                    .frame(maxWidth: .infinity, minHeight: 67, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain).id(choice.id)
+                            }.id(choice.id)
                                 .accessibilityIdentifier("conversion.unit." + choice.unit.id)
                             Divider().padding(.leading, 28)
                         }
@@ -362,6 +349,31 @@ private struct ConversionChoice: Identifiable {
     let category: ConversionCategory
     let unit: ConversionUnit
     var id: String { category.id + ":" + unit.id }
+}
+
+private struct ConversionRow: View {
+    let choice: ConversionChoice
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold))
+                    .frame(width: 20).opacity(selected ? 1 : 0)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(choice.unit.name).font(.system(size: 17, weight: .medium))
+                    Text(choice.unit.id).font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(selected ? .orange : .secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? .orange : .white)
+            .frame(maxWidth: .infinity, minHeight: 67, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 // Match the system's rounded material on the navigation controls.
