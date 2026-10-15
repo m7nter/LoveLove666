@@ -79,6 +79,26 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         keepScreenshot("Restricted-places-settings")
         enabled.tap()
     }
+    func testOfflineRegionCanBeChosenManuallyWithoutDownloading() {
+        let app = launch()
+        for key in ["1", "3", "5", "7", "="] { app.buttons["calculator.key." + key].tap() }
+        XCTAssertTrue(app.buttons["Папки"].waitForExistence(timeout: 10)); app.buttons["Папки"].tap()
+        XCTAssertTrue(app.buttons["gallery.settings"].waitForExistence(timeout: 10)); app.buttons["gallery.settings"].tap()
+        let territories = app.buttons["settings.restrictedPlaces"]
+        for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(territories.isHittable); territories.tap()
+        let offline = app.buttons["settings.offlineMaps"]
+        for _ in 0..<4 { if offline.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(offline.isHittable); offline.tap()
+        let search = app.textFields["offline.regionSearch"]
+        for _ in 0..<4 { if search.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(search.isHittable); search.tap(); search.typeText("Московская")
+        let region = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline.region.'")).firstMatch
+        XCTAssertTrue(region.waitForExistence(timeout: 5)); region.tap()
+        app.swipeDown(); app.swipeDown()
+        keepScreenshot("Offline-region-selection")
+        XCTAssertTrue(app.buttons["offline.download"].exists)
+    }
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(); app.launchArguments = ["--test-calculator"] + extra; app.launch()
         XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 10))

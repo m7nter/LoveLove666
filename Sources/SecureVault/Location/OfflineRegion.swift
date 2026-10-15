@@ -64,6 +64,9 @@ final class OfflinePlacesStore {
     private var indices: [String: RestrictedPlaceIndex] = [:]
     private var loaded = false
     private let queue = DispatchQueue(label: "Calculator.offlinePlaces", qos: .utility)
+    private let installLock = NSLock()
+    private var pendingInstalls: [String: UUID] = [:]
+    private var removedDatasetIDs: Set<String> = []
     private var root: URL { VaultDirectories.application.support.appendingPathComponent("OfflinePlaces", isDirectory: true) }
     private func loadIfNeeded() {
         guard !loaded else { return }; loaded = true
@@ -77,7 +80,7 @@ final class OfflinePlacesStore {
             }
             DispatchQueue.main.async {
                 guard generation == VaultGate.shared.generation else { return }
-                for (dataset, index) in found where self.datasets[dataset.region.id].map({ $0.date < dataset.date }) ?? true {
+                for (dataset, index) in found where !self.removedDatasetIDs.contains(dataset.region.id) && (self.datasets[dataset.region.id].map({ $0.date < dataset.date }) ?? true) {
                     self.datasets[dataset.region.id] = dataset; self.indices[dataset.region.id] = index
                 }
                 NotificationCenter.default.post(name: .init("OfflinePlacesChanged"), object: nil)
@@ -87,10 +90,14 @@ final class OfflinePlacesStore {
     func dataset(for id: String) -> OfflinePlaceDataset? { loadIfNeeded(); return datasets[id] }
     func install(_ dataset: OfflinePlaceDataset, generation: Int, completion: @escaping (Error?) -> Void) {
         let root = self.root
+        let token = UUID()
+        installLock.lock(); pendingInstalls[dataset.region.id] = token; installLock.unlock()
         queue.async {
             let result = Result { () -> RestrictedPlaceIndex in
                 let data = try JSONEncoder().encode(dataset), index = RestrictedPlaceIndex(dataset.places)
                 try VaultGate.shared.withAccess(generation: generation) {
+                    self.installLock.lock(); defer { self.installLock.unlock() }
+                    guard self.pendingInstalls[dataset.region.id] == token else { throw CocoaError(.userCancelled) }
                     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
                     try data.write(to: root.appendingPathComponent(dataset.region.id + ".json"), options: [.atomic, .completeFileProtection])
                 }
@@ -99,7 +106,12 @@ final class OfflinePlacesStore {
             DispatchQueue.main.async {
                 do {
                     let index = try result.get()
+                    self.installLock.lock()
+                    let current = self.pendingInstalls[dataset.region.id] == token
+                    self.installLock.unlock()
+                    guard current else { throw CocoaError(.userCancelled) }
                     guard generation == VaultGate.shared.generation else { throw CocoaError(.fileReadNoPermission) }
+                    self.removedDatasetIDs.remove(dataset.region.id)
                     self.loadIfNeeded(); self.datasets[dataset.region.id] = dataset; self.indices[dataset.region.id] = index
                     NotificationCenter.default.post(name: .init("OfflinePlacesChanged"), object: nil)
                     completion(nil)
@@ -109,12 +121,18 @@ final class OfflinePlacesStore {
     }
     func remove(_ id: String) throws {
         loadIfNeeded()
+        installLock.lock(); defer { installLock.unlock() }
+        pendingInstalls.removeValue(forKey: id)
+        removedDatasetIDs.insert(id)
         let url = root.appendingPathComponent(id + ".json")
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         datasets.removeValue(forKey: id)
         indices.removeValue(forKey: id)
     }
-    func clearMemory() { datasets = [:]; indices = [:]; loaded = false }
+    func clearMemory() {
+        installLock.lock(); pendingInstalls = [:]; installLock.unlock()
+        datasets = [:]; indices = [:]; loaded = false
+    }
     func snapshot(for location: CLLocation, settings: RestrictedPlaceSettings) -> RestrictedPlacesSnapshot? {
         loadIfNeeded()
         guard let dataset = datasets.values.sorted(by: { $0.date > $1.date }).first(where: {

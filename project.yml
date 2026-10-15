@@ -63,6 +63,7 @@ targets:
       - path: Resources/Assets.xcassets
       - path: Resources/Info.plist
       - path: Resources/OfflineRegions.json
+      - path: Resources/MapLibre-LICENSE.txt
     dependencies:
       - package: ZIPFoundation
       - package: MapLibre
