@@ -146,10 +146,14 @@ struct RootView: View {
     @State private var needsSetup = false
     @State private var showAccess = false
     @State private var accessError: String?
+    @State private var accessChecked = false
 
     var body: some View {
         Group {
-            if showAccess, let accessError {
+            if !accessChecked {
+                ProgressView().tint(.white)
+                    .task { refreshAccess(initial: true) }
+            } else if showAccess, let accessError {
                 VStack(spacing: 20) {
                     Text("Не удалось прочитать код") .font(.title2)
                     Text(accessError).font(.callout)
@@ -173,13 +177,24 @@ struct RootView: View {
         .preferredColorScheme(.dark)
     }
 
-    private func refreshAccess() {
+    private func refreshAccess(initial: Bool = false) {
         do {
             let code = try KeychainCodeStore.readChecked("mainCode")
             needsSetup = code.isEmpty || code == "2026"
             accessError = nil
+            accessChecked = true
+            if initial && needsSetup { showAccess = true }
         } catch {
-            accessError = "Защищённое хранилище iOS: \(error.localizedDescription). Код ошибки: \((error as NSError).code)."
+            if initial {
+                // A reinstall may retain an inaccessible keychain item. Treat it as a
+                // fresh install so the user can establish a new code.
+                needsSetup = true
+                accessError = nil
+                accessChecked = true
+                showAccess = true
+            } else {
+                accessError = "Защищённое хранилище iOS: \(error.localizedDescription). Код ошибки: \((error as NSError).code)."
+            }
         }
     }
     private func openHiddenAccess() {
