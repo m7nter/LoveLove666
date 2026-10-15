@@ -180,11 +180,12 @@ struct ConversionPicker: View {
         ConversionCategory.allCases.sorted { $0.rawValue.localizedStandardCompare($1.rawValue) == .orderedAscending }
     }
     private var rows: [ConversionChoice] {
-        let choices = search.isEmpty ? [model.category] : categories
-        return choices.flatMap { category in
-            let units = category == .currency ? model.currencyUnits : category.units
-            return units.map { ConversionChoice(category: category, unit: $0) }
-        }.filter { search.isEmpty || $0.unit.name.localizedCaseInsensitiveContains(search) || $0.unit.id.localizedCaseInsensitiveContains(search) }
+        let choices: [ConversionCategory] = search.isEmpty ? [model.category] : categories
+        let all: [ConversionChoice] = choices.flatMap { (category: ConversionCategory) -> [ConversionChoice] in
+            let units: [ConversionUnit] = category == .currency ? model.currencyUnits : category.units
+            return units.map { unit in ConversionChoice(category: category, unit: unit) }
+        }
+        return all.filter { search.isEmpty || $0.unit.name.localizedCaseInsensitiveContains(search) || $0.unit.id.localizedCaseInsensitiveContains(search) }
             .sorted { $0.unit.name.localizedStandardCompare($1.unit.name) == .orderedAscending }
     }
     var body: some View {
