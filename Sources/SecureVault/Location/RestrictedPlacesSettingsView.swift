@@ -2,6 +2,9 @@ import SwiftUI
 
 struct RestrictedPlacesSettingsView: View {
     @ObservedObject private var store = SettingsStore.shared
+    @ObservedObject private var offline = OfflineMapManager.shared
+    @State private var offerDownload = false
+    @State private var showOffline = false
     var body: some View {
         Form {
             Section {
@@ -15,6 +18,12 @@ struct RestrictedPlacesSettingsView: View {
                     ForEach([5, 10, 15, 20, 30, 50], id: \.self) { Text("\($0) м").tag(Double($0)) }
                 }
                 Text("По умолчанию ±15 м и хуже — съёмка запрещена. Нет свежего GPS или данных о территории — съёмка также запрещена. У границы учитывается запас на погрешность GPS.")
+                    .font(.caption).foregroundColor(.secondary)
+            }
+            Section("Без интернета") {
+                NavigationLink("Офлайн-карты и запретные места", destination: OfflineMapsView())
+                    .accessibilityIdentifier("settings.offlineMaps")
+                Text("Скачайте регион заранее: карта и база зон сохраняются отдельно. В скачанной области контроль работает без интернета при хорошем GPS.")
                     .font(.caption).foregroundColor(.secondary)
             }
             Section("Типы мест и расстояния") {
@@ -47,5 +56,13 @@ struct RestrictedPlacesSettingsView: View {
         .tint(.orange)
         .navigationTitle("Запретные места")
         .navigationBarTitleDisplayMode(.inline)
+        .background(NavigationLink(destination: OfflineMapsView(), isActive: $showOffline) { EmptyView() }.hidden())
+        .onChange(of: store.restrictedPlaces.enabled) { enabled in
+            if enabled { offline.open(); offerDownload = true }
+        }
+        .alert("Скачать регион для работы без интернета?", isPresented: $offerDownload) {
+            Button("Выбрать и скачать") { showOffline = true }
+            Button("Позже", role: .cancel) {}
+        } message: { Text(offline.suggestion + " Регион можно изменить в списке.") }
     }
 }

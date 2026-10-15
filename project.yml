@@ -43,6 +43,7 @@ targets:
     dependencies:
       - target: SecureVault
       - package: ZIPFoundation
+      - package: MapLibre
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -61,8 +62,10 @@ targets:
     resources:
       - path: Resources/Assets.xcassets
       - path: Resources/Info.plist
+      - path: Resources/OfflineRegions.json
     dependencies:
       - package: ZIPFoundation
+      - package: MapLibre
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -70,6 +73,9 @@ targets:
         CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]: Resources/Simulator.entitlements
 
 packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution.git
+    exactVersion: 6.31.0
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
     from: 0.9.19

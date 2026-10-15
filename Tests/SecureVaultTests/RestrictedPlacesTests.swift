@@ -96,6 +96,8 @@ final class RestrictedPlacesTests: XCTestCase {
     }
     func testCategoriesAndSpecificServicePriority() {
         XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"УФСБ России"]), .security)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"Федеральная служба безопасности"]), .security)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"Министерство внутренних дел"]), .police)
         XCTAssertEqual(RestrictedPlaceKind.classify(["amenity":"police","name":"Управление МВД"]), .police)
         XCTAssertEqual(RestrictedPlaceKind.classify(["government":"recruitment"]), .recruitment)
         XCTAssertEqual(RestrictedPlaceKind.classify(["government":"prosecutor"]), .prosecutor)
@@ -131,5 +133,16 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(result.blocked)
         XCTAssertTrue(result.message.hasPrefix("Детская площадка —"))
         XCTAssertTrue(result.message.contains("Школа —"))
+    }
+    @MainActor func testCameraRejectsCaptureBeforeStartingHardwareWhenVerificationIsPaused() {
+        let previous = SettingsStore.shared.restrictedPlaces
+        defer { SettingsStore.shared.restrictedPlaces = previous }
+        SettingsStore.shared.restrictedPlaces = enabled
+        RestrictedPlacesMonitor.shared.stop()
+        let camera = CameraViewModel()
+        camera.capturePhoto { _, _, _ in XCTFail("Capture must not reach completion while zones are unverified") }
+        XCTAssertTrue(camera.error?.contains("приостановлена") == true)
+        XCTAssertFalse(camera.isCapturing)
+        XCTAssertNil(camera.pendingContext)
     }
 }

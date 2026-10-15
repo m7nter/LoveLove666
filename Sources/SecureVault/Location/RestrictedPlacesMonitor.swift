@@ -33,7 +33,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification).sink { [weak self] _ in self?.stop() }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .vaultWillErase).receive(on: DispatchQueue.main).sink { [weak self] _ in
-            self?.stop(); self?.snapshot = nil
+            self?.stop(); self?.snapshot = nil; OfflinePlacesStore.shared.clearMemory()
         }.store(in: &subscriptions)
     }
 
@@ -75,7 +75,12 @@ final class RestrictedPlacesMonitor: ObservableObject {
             publish(.disabled); return
         }
         let location = LocationManager.shared.location.flatMap { $0.timestamp >= activationDate ? $0 : nil }
-        publish(RestrictedPlacesPolicy.evaluate(location: location, settings: settings, snapshot: snapshot, unavailableReason: unavailableReason))
+        let offlineSnapshot = location.flatMap { OfflinePlacesStore.shared.snapshot(for: $0, settings: settings) }
+        let effectiveSnapshot = offlineSnapshot ?? snapshot
+        var evaluated = RestrictedPlacesPolicy.evaluate(location: location, settings: settings, snapshot: effectiveSnapshot, unavailableReason: unavailableReason)
+        if offlineSnapshot != nil && !evaluated.blocked { evaluated = .init(blocked: false, message: "Офлайн-проверка: запретных зон по сохранённым данным рядом не найдено") }
+        publish(evaluated)
+        if offlineSnapshot != nil { return }
         guard RestrictedPlaceKind.allCases.contains(where: settings.includes),
               RestrictedPlacesPolicy.locationProblem(location, settings: settings, now: Date()) == nil,
               let location, task == nil, Date() >= nextRequest else { return }
@@ -115,7 +120,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
             let result: Result<[RestrictedPlace], Error> = Result {
                 guard error == nil, let response = response as? HTTPURLResponse,
                       response.statusCode == 200, let data, data.count <= 16_777_216 else {
-                    throw error ?? RestrictedPlacesError.incompleteResponse
+                    throw error ?? URLError(.badServerResponse)
                 }
                 return try RestrictedPlacesParser.parse(data)
             }

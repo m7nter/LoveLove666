@@ -240,6 +240,7 @@ struct SettingsView: View {
                 }
 
                 Section("Карта") {
+                    NavigationLink("Офлайн-карты", destination: OfflineMapsView())
                     Toggle("Объединять близкие метки", isOn: $store.clusterMapPins)
                         .tint(.orange)
                     Text("Если фото сделаны рядом друг с другом, метки на карте будут объединяться в один кружок с числом снимков. При увеличении масштаба метки разделяются")

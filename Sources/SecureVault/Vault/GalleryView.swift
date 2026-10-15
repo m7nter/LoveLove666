@@ -211,6 +211,7 @@ struct GalleryView: View {
                                 Image(systemName: "gear")
                                     .foregroundColor(.orange)
                             }
+                            .accessibilityIdentifier("gallery.settings")
                         }
                     }
                 }

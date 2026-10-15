@@ -46,8 +46,8 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable {
         if tags["government"] == "recruitment" || matches("военком|военн.*комиссар|recruitment") { return .recruitment }
         if tags["government"] == "prosecutor" || matches("прокурат|prosecutor") { return .prosecutor }
         if tags["amenity"] == "courthouse" || tags["government"] == "court" { return .court }
-        if matches("(^|[^а-яa-z])(фсб|уфсб|фсо|фсин|фссп|росгвард|омон|собр|следственн|fsb|security service)") { return .security }
-        if tags["amenity"] == "police" || tags["police"] != nil || tags["government"] == "police" || matches("(^|[^а-яa-z])(мвд|умвд|омвд|гибдд|дпс|полици|police)") { return .police }
+        if ["security", "intelligence"].contains(tags["government"] ?? "") || matches("(^|[^а-яa-z])(фсб|уфсб|фсо|фсин|фссп|росгвард|омон|собр|следственн|fsb|security service)|федеральн.*служб.*(безопасност|охран|исполнения наказан)|национальн.*гварди|служб.*судебн.*пристав") { return .security }
+        if tags["amenity"] == "police" || tags["police"] != nil || tags["government"] == "police" || matches("(^|[^а-яa-z])(мвд|умвд|омвд|гибдд|дпс|полици|police)|(министерств|управлен|отдел).*внутренн.*дел") { return .police }
         if tags["landuse"] == "military" || tags["military"] != nil || tags["government"] == "military" { return .military }
         if tags["amenity"] == "townhall" || tags["government"] == "administrative" || matches("администраци|мэрия") { return .administration }
         if tags["amenity"] == "kindergarten" || tags["building"] == "kindergarten" { return .kindergarten }
@@ -70,14 +70,14 @@ struct RestrictedPlaceSettings: Codable, Equatable {
     var maximumRadius: Double { RestrictedPlaceKind.allCases.filter(includes).map(radius).max() ?? 0 }
 }
 
-struct OSMCoordinate: Decodable, Equatable {
+struct OSMCoordinate: Codable, Equatable {
     let lat: Double
     let lon: Double
     var coordinate: CLLocationCoordinate2D { .init(latitude: lat, longitude: lon) }
     var valid: Bool { lat.isFinite && lon.isFinite && CLLocationCoordinate2DIsValid(coordinate) }
 }
 
-struct RestrictedPlace {
+struct RestrictedPlace: Codable {
     let id: String
     let kind: RestrictedPlaceKind
     let name: String?
@@ -198,8 +198,13 @@ struct RestrictedPlacesSnapshot {
     let radius: Double
     let fetchedAt: Date
     let places: [RestrictedPlace]
+    var offlineBounds: OfflineRegionBounds? = nil
+    var index: RestrictedPlaceIndex? = nil
     func covers(_ location: CLLocation, settings: RestrictedPlaceSettings, now: Date) -> Bool {
         let age = now.timeIntervalSince(fetchedAt)
+        if let bounds = offlineBounds {
+            return age >= 0 && age < 30 * 86400 && bounds.contains(location.coordinate, margin: settings.maximumRadius + location.horizontalAccuracy)
+        }
         return age >= 0 && age < 600 && center.distance(from: location) + settings.maximumRadius + location.horizontalAccuracy < radius
     }
 }
@@ -232,7 +237,8 @@ enum RestrictedPlacesPolicy {
         guard let location, let snapshot, snapshot.covers(location, settings: settings, now: now) else {
             return .init(blocked: true, message: unavailableReason + " Съёмка заблокирована.")
         }
-        let violations = snapshot.places.filter { settings.includes($0.kind) }.compactMap { place -> (RestrictedPlace, Double, Bool)? in
+        let nearby = snapshot.index?.near(location, radius: settings.maximumRadius + location.horizontalAccuracy) ?? snapshot.places
+        let violations = nearby.filter { settings.includes($0.kind) }.compactMap { place -> (RestrictedPlace, Double, Bool)? in
             let distance = place.distance(from: location)
             let radius = settings.radius(for: place.kind)
             guard distance - location.horizontalAccuracy <= radius else { return nil }

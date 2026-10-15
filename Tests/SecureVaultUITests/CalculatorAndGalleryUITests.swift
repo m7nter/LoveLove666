@@ -61,6 +61,24 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         attachment.name = "Calculator-during-press"; attachment.lifetime = .keepAlways
         add(attachment)
     }
+    func testRestrictionSettingsCanBeEnabledAndShowDefaultBoundaryRadius() {
+        let app = launch()
+        for key in ["1", "3", "5", "7", "="] { app.buttons["calculator.key." + key].tap() }
+        XCTAssertTrue(app.buttons["Папки"].waitForExistence(timeout: 10)); app.buttons["Папки"].tap()
+        let settings = app.buttons["gallery.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10)); settings.tap()
+        let territories = app.buttons["settings.restrictedPlaces"]
+        for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(territories.isHittable); territories.tap()
+        let enabled = app.switches["settings.restrictedPlaces.enabled"]
+        XCTAssertTrue(enabled.waitForExistence(timeout: 5))
+        if enabled.value as? String == "0" { enabled.tap() }
+        if app.alerts.firstMatch.waitForExistence(timeout: 2) { app.alerts.buttons["Позже"].tap() }
+        XCTAssertEqual(enabled.value as? String, "1")
+        XCTAssertTrue(app.staticTexts["До границы: 65 м"].firstMatch.exists)
+        keepScreenshot("Restricted-places-settings")
+        enabled.tap()
+    }
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(); app.launchArguments = ["--test-calculator"] + extra; app.launch()
         XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 10))

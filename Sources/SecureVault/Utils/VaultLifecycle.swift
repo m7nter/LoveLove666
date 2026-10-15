@@ -90,11 +90,14 @@ struct VaultEraseService {
     let defaultsDomain: String
     let destroyKey: () throws -> Void
     let destroyCodes: () throws -> Void
+    let preservedSupportEntries: Set<String>
     private let fm = FileManager.default
     init(directories: VaultDirectories, defaults: UserDefaults, defaultsDomain: String,
-         destroyKey: @escaping () throws -> Void, destroyCodes: @escaping () throws -> Void = {}) {
+         destroyKey: @escaping () throws -> Void, destroyCodes: @escaping () throws -> Void = {},
+         preservedSupportEntries: Set<String> = []) {
         self.directories = directories; self.defaults = defaults
         self.defaultsDomain = defaultsDomain; self.destroyKey = destroyKey; self.destroyCodes = destroyCodes
+        self.preservedSupportEntries = preservedSupportEntries
     }
 
     func prepare(_ mode: ActionButtonMode, generation: Int) throws {
@@ -133,7 +136,7 @@ struct VaultEraseService {
         if mode == .photos { remove(directories.documents.appendingPathComponent("VaultPhotos")) }
         else {
             clear(directories.documents)
-            clear(directories.support, preserving: ["VaultDisabled.flag", "VaultErase.pending"])
+            clear(directories.support, preserving: Set(["VaultDisabled.flag", "VaultErase.pending"]).union(preservedSupportEntries))
         }
         clear(directories.caches); clear(directories.temporary)
         guard failures.isEmpty else { throw failures[0] }
@@ -197,11 +200,16 @@ final class VaultLifecycle: ObservableObject {
         let service = VaultEraseService(directories: directories, defaults: .standard,
             defaultsDomain: Bundle.main.bundleIdentifier ?? "com.securevault.app",
             destroyKey: { try CryptoManager.destroyKey() },
-            destroyCodes: { try KeychainCodeStore.deleteAll() })
+            destroyCodes: { try KeychainCodeStore.deleteAll() },
+            preservedSupportEntries: [Bundle.main.bundleIdentifier ?? "com.securevault.app"])
         NotificationCenter.default.post(name: .vaultWillErase, object: nil)
         do { try service.prepare(mode, generation: epoch) }
         catch { isErasing = false; lastError = "Не удалось подготовить удаление: \(error.localizedDescription)"; return }
-        queue.async {
+        OfflineMapManager.shared.prepareForErase(mode) { mapError in
+            if let mapError {
+                self.isErasing = false; self.lastError = "Не удалось очистить офлайн-карты: \(mapError.localizedDescription)"; return
+            }
+        self.queue.async {
             let result = Result { try VaultGate.shared.duringErase { try service.erase(mode, generation: epoch) } }
             DispatchQueue.main.async {
                 self.isErasing = false
@@ -218,6 +226,7 @@ final class VaultLifecycle: ObservableObject {
                     self.lastError = "Удаление не завершено: \(error.localizedDescription)"
                 }
             }
+        }
         }
     }
 }
