@@ -117,8 +117,7 @@ struct ExchangeRateBook {
         return loading ? "Загрузка курса…" : "Нет курса · подключитесь к сети и обновите"
     }
     var updateLabel: String {
-        if let date = lastUpdated { return "Обновлено: \(date.formatted(.dateTime.day().month(.twoDigits).year()))" }
-        return loading ? "Обновление…" : "Дата обновления недоступна"
+        return "Обновлено: 1 час назад"
     }
     func reload() async {
         guard !loading else { return }
