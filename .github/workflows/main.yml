@@ -112,6 +112,7 @@ jobs:
             UI-previews/
 
       - name: Build app
+        if: always()
         run: |
           xcodebuild \
             -project SecureVault.xcodeproj \
@@ -128,6 +129,7 @@ jobs:
             build
 
       - name: Package into IPA
+        if: always()
         run: |
           APP_PATH="$GITHUB_WORKSPACE/build/Build/Products/Release-iphoneos/SecureVault.app"
           test -d "$APP_PATH"
@@ -139,6 +141,7 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/SecureVault.ipa"
 
       - name: Upload IPA artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: LoveLove666-IPA
