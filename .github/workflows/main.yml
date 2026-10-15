@@ -86,7 +86,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Capture calculator preview
-        if: always()
+        if: success()
         run: |
           xcrun simctl bootstatus "$TEST_SIMULATOR_ID" -b
           xcrun simctl status_bar "$TEST_SIMULATOR_ID" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
@@ -103,7 +103,7 @@ jobs:
           xcrun xcresulttool export attachments --path TestResults.xcresult --output-path UI-previews
 
       - name: Upload calculator preview
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Calculator-preview
