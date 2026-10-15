@@ -239,6 +239,43 @@ final class FileStorageManager {
             return cachedLatestLocation
         }
     }
+
+    /// Returns the location of the first photo in the most recently completed
+    /// or in-progress event. Distance protection is measured between event
+    /// anchors, so additional photos belonging to the same event do not move
+    /// the reference point.
+    func lastEventLocation() -> CLLocation? {
+        try? VaultGate.shared.withAccess { () -> CLLocation? in
+            let records = loadAllWithMetaUnlocked().compactMap { url, meta -> (String, PhotoMeta)? in
+                guard let meta, meta.hasLocation != false,
+                      meta.latitude >= -90, meta.latitude <= 90,
+                      meta.longitude >= -180, meta.longitude <= 180 else { return nil }
+                return (url.path, meta)
+            }
+            guard !records.isEmpty else { return nil }
+
+            // Event number is monotonic for newly created events. Legacy
+            // records may not have it, so date remains a deterministic
+            // fallback for those entries.
+            let grouped = Dictionary(grouping: records) { $0.1.eventID?.uuidString ?? $0.0 }
+            let latest = grouped.max { lhs, rhs in
+                let lhsNumber = lhs.value.compactMap { $0.1.eventNumber }.max() ?? 0
+                let rhsNumber = rhs.value.compactMap { $0.1.eventNumber }.max() ?? 0
+                if lhsNumber != rhsNumber { return lhsNumber < rhsNumber }
+                let lhsDate = lhs.value.map { $0.1.date }.max() ?? .distantPast
+                let rhsDate = rhs.value.map { $0.1.date }.max() ?? .distantPast
+                return lhsDate < rhsDate
+            }?.value
+            guard let first = latest?.min(by: { lhs, rhs in
+                let lhsIndex = lhs.1.eventIndex ?? Int.max
+                let rhsIndex = rhs.1.eventIndex ?? Int.max
+                if lhsIndex != rhsIndex { return lhsIndex < rhsIndex }
+                return lhs.1.date < rhs.1.date
+            }) else { return nil }
+            return CLLocation(coordinate: CLLocationCoordinate2D(latitude: first.1.latitude, longitude: first.1.longitude),
+                              altitude: 0, horizontalAccuracy: -1, verticalAccuracy: -1, timestamp: first.1.date)
+        }
+    }
     private func overwriteUnlocked(image: UIImage, at url: URL) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let jpeg = image.jpegData(compressionQuality: 0.92), let encrypted = CryptoManager.encrypt(jpeg) else { return false }
@@ -407,3 +444,4 @@ final class FileStorageManager {
         return header == Data([0xFF, 0xD8, 0xFF])
     }
 }
+

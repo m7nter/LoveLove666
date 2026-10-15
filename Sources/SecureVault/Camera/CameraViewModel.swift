@@ -3,6 +3,27 @@ import UIKit
 import Combine
 import CoreLocation
 
+/// Distance protection is anchored to events, rather than individual photos.
+/// A multi-photo event can therefore be completed at one location; the next
+/// event must move at least the configured distance from the previous event's
+/// first photo.
+enum EventDistancePolicy {
+    static func denialReason(current: CLLocation?, lastEvent: CLLocation?, enabled: Bool,
+                             minimumDistance: Int, continuingEvent: Bool,
+                             now: Date = Date()) -> String? {
+        guard enabled, !continuingEvent, let lastEvent else { return nil }
+        guard let current,
+              current.horizontalAccuracy >= 0,
+              abs(current.timestamp.timeIntervalSince(now)) < 15 else {
+            return "Нет свежих координат — невозможно проверить расстояние между событиями. Съёмка заблокирована."
+        }
+        let minimum = max(0, minimumDistance)
+        let distance = current.distance(from: lastEvent)
+        guard distance < Double(minimum) else { return nil }
+        return String(format: "До последнего события %.0f м — минимум %d м. Съёмка заблокирована.", distance, minimum)
+    }
+}
+
 final class CameraViewModel: NSObject, ObservableObject {
     @Published var capturedImage: UIImage?
     @Published var error: String?
@@ -224,6 +245,15 @@ final class CameraViewModel: NSObject, ObservableObject {
                 return "Нет свежих точных координат — съёмка заблокирована."
             }
         }
+        if let reason = EventDistancePolicy.denialReason(
+            current: LocationManager.shared.location,
+            lastEvent: FileStorageManager.shared.lastEventLocation(),
+            enabled: settings.distanceTrackingEnabled,
+            minimumDistance: settings.minDistanceThreshold,
+            continuingEvent: event.map { $0.index > 1 } ?? false
+        ) {
+            return reason
+        }
         return nil
     }
 
@@ -300,3 +330,4 @@ extension CameraViewModel: AVCapturePhotoCaptureDelegate {
         }
     }
 }
+

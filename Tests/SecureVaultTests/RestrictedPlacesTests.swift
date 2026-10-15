@@ -144,6 +144,40 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(result.message.hasPrefix("Детская площадка —"))
         XCTAssertTrue(result.message.contains("Школа —"))
     }
+
+    func testDistanceProtectionIsBetweenEventsNotEventPhotos() {
+        let previousEvent = location()
+        let nearby = location(0, 0.0001)
+
+        // The first photo starts an event and has no previous event anchor.
+        XCTAssertNil(EventDistancePolicy.denialReason(current: nearby, lastEvent: nil,
+                                                       enabled: true, minimumDistance: 30,
+                                                       continuingEvent: false, now: now))
+        // The second photo belongs to the same event and is allowed at the
+        // same location, even when it is closer than the threshold.
+        XCTAssertNil(EventDistancePolicy.denialReason(current: nearby, lastEvent: previousEvent,
+                                                       enabled: true, minimumDistance: 30,
+                                                       continuingEvent: true, now: now))
+        // A new event at the same location is blocked until it moves away.
+        let reason = EventDistancePolicy.denialReason(current: nearby, lastEvent: previousEvent,
+                                                      enabled: true, minimumDistance: 30,
+                                                      continuingEvent: false, now: now)
+        XCTAssertTrue(reason?.contains("последнего события") == true)
+        XCTAssertTrue(reason?.contains("минимум 30 м") == true)
+        XCTAssertNil(EventDistancePolicy.denialReason(current: location(0, 0.0004), lastEvent: previousEvent,
+                                                       enabled: true, minimumDistance: 30,
+                                                       continuingEvent: false, now: now))
+    }
+
+    func testDistanceProtectionFailsClosedWhenNewEventCannotBeChecked() {
+        XCTAssertTrue(EventDistancePolicy.denialReason(current: nil, lastEvent: location(),
+                                                        enabled: true, minimumDistance: 30,
+                                                        continuingEvent: false, now: now) != nil)
+        XCTAssertNil(EventDistancePolicy.denialReason(current: nil, lastEvent: location(),
+                                                       enabled: true, minimumDistance: 30,
+                                                       continuingEvent: true, now: now))
+    }
+
     @MainActor func testCameraRejectsCaptureBeforeStartingHardwareWhenVerificationIsPaused() {
         let previous = SettingsStore.shared.restrictedPlaces
         defer { SettingsStore.shared.restrictedPlaces = previous }
@@ -156,3 +190,4 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertNil(camera.pendingContext)
     }
 }
+

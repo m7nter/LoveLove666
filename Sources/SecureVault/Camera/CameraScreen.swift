@@ -32,6 +32,7 @@ struct CameraScreen: View {
 
     private var isCaptureBlocked: Bool {
         if settings.restrictedPlaces.enabled && restrictedPlaces.decision.blocked { return true }
+        if eventDistanceDenialReason != nil { return true }
         guard settings.accuracyProtectionEnabled else { return false }
         guard let location = locationManager.location,
               abs(location.timestamp.timeIntervalSinceNow) < 15,
@@ -39,16 +40,26 @@ struct CameraScreen: View {
         return accuracy > Double(settings.accuracyThreshold)
     }
 
-    private var distanceFromLastPhoto: Double? {
+    private var isContinuingEvent: Bool {
+        cameraVM.event.map { $0.index > 1 } ?? false
+    }
+
+    private var distanceFromLastEvent: Double? {
         guard settings.distanceTrackingEnabled else { return nil }
+        guard !isContinuingEvent else { return nil }
         guard let current = locationManager.location else { return nil }
-        guard let last = FileStorageManager.shared.lastPhotoLocation() else { return nil }
+        guard let last = FileStorageManager.shared.lastEventLocation() else { return nil }
         return current.distance(from: last)
     }
 
-    private var isDistanceViolation: Bool {
-        guard let d = distanceFromLastPhoto else { return false }
-        return d < Double(settings.minDistanceThreshold)
+    private var eventDistanceDenialReason: String? {
+        EventDistancePolicy.denialReason(
+            current: locationManager.location,
+            lastEvent: FileStorageManager.shared.lastEventLocation(),
+            enabled: settings.distanceTrackingEnabled,
+            minimumDistance: settings.minDistanceThreshold,
+            continuingEvent: isContinuingEvent
+        )
     }
 
     var body: some View {
@@ -88,10 +99,10 @@ struct CameraScreen: View {
                                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                                 .foregroundColor(.white.opacity(0.85))
                         }
-                        if let distance = distanceFromLastPhoto {
-                            Text(String(format: "До посл. фото: %.0f м", distance))
+                        if let distance = distanceFromLastEvent {
+                            Text(String(format: "До посл. события: %.0f м", distance))
                                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundColor(isDistanceViolation ? .red : .green)
+                                .foregroundColor(distance < Double(settings.minDistanceThreshold) ? .red : .green)
                         }
                     }
                     Spacer()
@@ -120,7 +131,7 @@ struct CameraScreen: View {
                         .accessibilityIdentifier("camera.restrictedPlaces.reason")
                 }
 
-                if isCaptureBlocked && !(settings.restrictedPlaces.enabled && restrictedPlaces.decision.blocked) {
+                if isCaptureBlocked && eventDistanceDenialReason == nil && !(settings.restrictedPlaces.enabled && restrictedPlaces.decision.blocked) {
                     Text("Нет свежих точных координат (порог \(settings.accuracyThreshold) м) — съёмка заблокирована")
                         .font(.caption)
                         .foregroundColor(.white)
@@ -129,8 +140,8 @@ struct CameraScreen: View {
                         .background(Color.red.opacity(0.85))
                 }
 
-                if isDistanceViolation {
-                    Text("Слишком близко к последнему фото — минимум \(settings.minDistanceThreshold) м")
+                if let reason = eventDistanceDenialReason {
+                    Text(reason)
                         .font(.caption)
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -279,3 +290,4 @@ struct CameraScreen: View {
         NotificationCenter.default.post(name: .blackScreenChanged, object: enabled)
     }
 }
+
