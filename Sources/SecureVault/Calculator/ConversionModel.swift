@@ -76,6 +76,7 @@ struct ExchangeRateBook {
     @Published private(set) var book = ExchangeRateBook(rates: [])
     @Published private(set) var loading = false
     @Published private(set) var offline = false
+    @Published private(set) var lastUpdated: Date?
     private let cacheKey = "calculator.exchangeRates.v2"
     var units: [ConversionUnit] {
         guard category == .currency else { return category.units }
@@ -89,7 +90,10 @@ struct ExchangeRateBook {
     }
     init() {
         if let data = UserDefaults.standard.data(forKey: cacheKey),
-           let rates = try? JSONDecoder().decode([ExchangeRate].self, from: data) { book = ExchangeRateBook(rates: rates) }
+           let rates = try? JSONDecoder().decode([ExchangeRate].self, from: data) {
+            book = ExchangeRateBook(rates: rates)
+            lastUpdated = Self.parseDate(rates.first?.date)
+        }
     }
     func select(_ value: ConversionCategory) {
         category = value
@@ -106,10 +110,15 @@ struct ExchangeRateBook {
     var status: String {
         guard category == .currency else { return category.rawValue }
         if from == to { return "Одинаковые валюты" }
-        if let date = book.date(from: from, to: to) {
-            return "Frankfurter · \(date)" + (offline ? " · сохранённый курс" : "")
+        if let date = lastUpdated {
+            let formatted = date.formatted(.dateTime.day().month(.twoDigits).year())
+            return "Обновлено: \(formatted)" + (offline ? " · сохранённый курс" : "")
         }
         return loading ? "Загрузка курса…" : "Нет курса · подключитесь к сети и обновите"
+    }
+    var updateLabel: String {
+        if let date = lastUpdated { return "Обновлено: \(date.formatted(.dateTime.day().month(.twoDigits).year()))" }
+        return loading ? "Обновление…" : "Дата обновления недоступна"
     }
     func reload() async {
         guard !loading else { return }
@@ -125,8 +134,13 @@ struct ExchangeRateBook {
                 throw URLError(.cannotParseResponse)
             }
             guard !Task.isCancelled else { return }
-            book = ExchangeRateBook(rates: rates); offline = false
+            book = ExchangeRateBook(rates: rates); lastUpdated = Self.parseDate(rates.first?.date); offline = false
             UserDefaults.standard.set(data, forKey: cacheKey)
         } catch { offline = true }
+    }
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: value)
     }
 }
