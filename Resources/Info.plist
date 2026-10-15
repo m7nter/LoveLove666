@@ -13,10 +13,10 @@
     <string>com.securevault.app</string>
 
     <key>CFBundleVersion</key>
-    <string>4</string>
+    <string>5</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>1.1.1</string>
+    <string>1.2.0</string>
 
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
@@ -40,7 +40,7 @@
     <string>Camera access is needed to take photos.</string>
 
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Location is used to geotag your photos.</string>
+    <string>Координаты нужны для геометок и проверки расстояния до запретных территорий, если контроль включён.</string>
 
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Location is used to geotag your photos.</string>

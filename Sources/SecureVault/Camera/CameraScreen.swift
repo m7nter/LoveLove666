@@ -7,6 +7,7 @@ struct CameraScreen: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject private var locationManager = LocationManager.shared
     @ObservedObject private var settings = SettingsStore.shared
+    @ObservedObject private var restrictedPlaces = RestrictedPlacesMonitor.shared
     @State private var blackScreen = false
     @State private var savedBrightness: CGFloat?
     @State private var savedIdleTimer: Bool?
@@ -30,6 +31,7 @@ struct CameraScreen: View {
     }
 
     private var isCaptureBlocked: Bool {
+        if settings.restrictedPlaces.enabled && restrictedPlaces.decision.blocked { return true }
         guard settings.accuracyProtectionEnabled else { return false }
         guard let location = locationManager.location,
               abs(location.timestamp.timeIntervalSinceNow) < 15,
@@ -108,7 +110,17 @@ struct CameraScreen: View {
                 .padding(.vertical, 10)
                 .background(Color.black.opacity(0.5))
 
-                if isCaptureBlocked {
+                if settings.restrictedPlaces.enabled {
+                    Text(restrictedPlaces.decision.message.isEmpty ? "Проверяем ближайшие территории…" : restrictedPlaces.decision.message)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(restrictedPlaces.decision.blocked ? Color.red.opacity(0.9) : Color.black.opacity(0.65))
+                        .accessibilityIdentifier("camera.restrictedPlaces.reason")
+                }
+
+                if isCaptureBlocked && !(settings.restrictedPlaces.enabled && restrictedPlaces.decision.blocked) {
                     Text("Нет свежих точных координат (порог \(settings.accuracyThreshold) м) — съёмка заблокирована")
                         .font(.caption)
                         .foregroundColor(.white)
@@ -218,6 +230,7 @@ struct CameraScreen: View {
         .statusBarHidden(blackScreen)
         .persistentSystemOverlays(blackScreen ? .hidden : .automatic)
         .onAppear {
+            restrictedPlaces.start()
             cameraVM.startSession()
             locationManager.requestAndStart()
             if settings.volumeButtonCaptureEnabled {
@@ -231,13 +244,14 @@ struct CameraScreen: View {
             }
         }
         .onDisappear {
+            restrictedPlaces.stop()
             VolumeButtonHandler.shared.stop()
             setBlackScreen(false)
             cameraVM.stopSession()
         }
         .onChange(of: scenePhase) { phase in
-            if phase != .active { setBlackScreen(false); cameraVM.stopSession() }
-            else { cameraVM.startSession(); locationManager.requestAndStart() }
+            if phase != .active { restrictedPlaces.stop(); setBlackScreen(false); cameraVM.stopSession() }
+            else { restrictedPlaces.start(); cameraVM.startSession(); locationManager.requestAndStart() }
         }
         .onChange(of: settings.blackScreenEnabled) { if !$0 { setBlackScreen(false) } }
         .alert("Камера", isPresented: Binding(get: { cameraVM.error != nil }, set: { if !$0 { cameraVM.error = nil } })) {

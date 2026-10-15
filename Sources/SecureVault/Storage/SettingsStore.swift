@@ -2,6 +2,12 @@ import SwiftUI
 
 class SettingsStore: ObservableObject {
     static let shared = SettingsStore()
+    @Published var restrictedPlaces: RestrictedPlaceSettings = UserDefaults.standard.data(forKey: "restrictedPlaces")
+        .flatMap { try? JSONDecoder().decode(RestrictedPlaceSettings.self, from: $0) } ?? .init() {
+        didSet {
+            if let data = try? JSONEncoder().encode(restrictedPlaces) { UserDefaults.standard.set(data, forKey: "restrictedPlaces") }
+        }
+    }
     @Published var coordinatesOnShare: Bool = UserDefaults.standard.bool(forKey: "coordinatesOnShare") {
         didSet { UserDefaults.standard.set(coordinatesOnShare, forKey: "coordinatesOnShare") }
     }
@@ -193,6 +199,7 @@ class SettingsStore: ObservableObject {
     }
 
     func resetToFactory() {
+        restrictedPlaces = .init()
         avatarImage = nil
         notesOnExport = false; numberingMode = "off"
         coordinatesOnShare = false; archiveMetadata = .standard

@@ -115,6 +115,18 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Запретные места") {
+                    NavigationLink(destination: RestrictedPlacesSettingsView()) {
+                        HStack {
+                            Text("Контроль территорий")
+                            Spacer()
+                            Text(store.restrictedPlaces.enabled ? "Включён" : "Выключен").foregroundColor(.secondary)
+                        }
+                    }.accessibilityIdentifier("settings.restrictedPlaces")
+                    Text("Детские и спортивные объекты — 65 м, госструктуры — 100 м. Типы мест, расстояния и точность GPS настраиваются отдельно.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+
                 Section("Точность GPS") {
                     Toggle("Защита от погрешности", isOn: $store.accuracyProtectionEnabled)
                         .tint(.orange)

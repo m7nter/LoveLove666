@@ -8,12 +8,6 @@ struct PhotoPin: Identifiable {
     let date: Date
 }
 
-struct PinCluster: Identifiable {
-    let id: String
-    let coordinate: CLLocationCoordinate2D
-    let pins: [PhotoPin]
-}
-
 struct PhotoMapView: View {
     @Environment(\.dismiss) var dismiss
     @State private var pins: [PhotoPin] = []
@@ -26,64 +20,8 @@ struct PhotoMapView: View {
 
     var body: some View {
         ZStack {
-            Map(coordinateRegion: $region,
-                annotationItems: clusteredPins(pins: pins, span: region.span)) { cluster in
-                MapAnnotation(coordinate: cluster.coordinate) {
-                    if cluster.pins.count > 1 {
-                        Button {
-                            withAnimation {
-                                region = MKCoordinateRegion(
-                                    center: cluster.coordinate,
-                                    span: MKCoordinateSpan(
-                                        latitudeDelta: region.span.latitudeDelta / 2.5,
-                                        longitudeDelta: region.span.longitudeDelta / 2.5
-                                    )
-                                )
-                            }
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.orange)
-                                    .frame(width: 38, height: 38)
-                                Text("\(cluster.pins.count)")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            .overlay(Circle().stroke(Color.white, lineWidth: 2))
-                            .shadow(radius: 2)
-                        }
-                    } else if let pin = cluster.pins.first {
-                        Button {
-                            selectedPin = pin
-                        } label: {
-                            VStack(spacing: 2) {
-                                if let img = FileStorageManager.shared.loadImage(at: pin.url) {
-                                    Image(uiImage: img)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 44, height: 44)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.orange, lineWidth: 2)
-                                        )
-                                } else {
-                                    Image(systemName: "camera.fill")
-                                        .foregroundColor(.white)
-                                        .frame(width: 44, height: 44)
-                                        .background(Color.orange)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                Image(systemName: "triangle.fill")
-                                    .font(.system(size: 8))
-                                    .foregroundColor(.orange)
-                                    .rotationEffect(.degrees(180))
-                            }
-                        }
-                    }
-                }
-            }
-            .ignoresSafeArea()
+            OpenStreetPhotoMap(pins: pins, region: $region, clusters: settings.clusterMapPins) { selectedPin = $0 }
+                .ignoresSafeArea()
 
             VStack {
                 HStack {
@@ -132,7 +70,12 @@ struct PhotoMapView: View {
                     .padding(.vertical, 8)
                     .background(Color.black.opacity(0.6))
                     .cornerRadius(12)
-                    .padding(.bottom, 32)
+                    .padding(.bottom, 8)
+                Link("© OpenStreetMap contributors", destination: URL(string: "https://www.openstreetmap.org/copyright")!)
+                    .font(.caption2).foregroundColor(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Color.black.opacity(0.8)).cornerRadius(6)
+                    .padding(.bottom, 12)
             }
 
             // Превью выбранного фото
@@ -179,49 +122,12 @@ struct PhotoMapView: View {
         .onAppear { loadPins() }
     }
 
-    private func clusteredPins(pins: [PhotoPin], span: MKCoordinateSpan) -> [PinCluster] {
-        guard settings.clusterMapPins, pins.count > 1 else {
-            return pins.map { PinCluster(id: $0.id.uuidString, coordinate: $0.coordinate, pins: [$0]) }
-        }
-
-        // Квантуем масштаб ступенями (по степеням двойки), чтобы кластеры
-        // не пересчитывались на каждый пиксель во время непрерывного зума —
-        // именно это раньше вызывало "мигание" меток.
-        let rawSpan = max(span.latitudeDelta, span.longitudeDelta)
-        guard rawSpan > 0 else {
-            return pins.map { PinCluster(id: $0.id.uuidString, coordinate: $0.coordinate, pins: [$0]) }
-        }
-        let zoomLevel = floor(log2(rawSpan))
-        let steppedSpan = pow(2.0, zoomLevel)
-        let gridSize = steppedSpan / 20
-        guard gridSize > 0 else {
-            return pins.map { PinCluster(id: $0.id.uuidString, coordinate: $0.coordinate, pins: [$0]) }
-        }
-
-        var buckets: [String: [PhotoPin]] = [:]
-        for pin in pins {
-            let latKey = Int((pin.coordinate.latitude / gridSize).rounded())
-            let lonKey = Int((pin.coordinate.longitude / gridSize).rounded())
-            let key = "\(Int(zoomLevel))_\(latKey)_\(lonKey)"
-            buckets[key, default: []].append(pin)
-        }
-
-        return buckets.map { key, group in
-            let avgLat = group.map { $0.coordinate.latitude }.reduce(0, +) / Double(group.count)
-            let avgLon = group.map { $0.coordinate.longitude }.reduce(0, +) / Double(group.count)
-            return PinCluster(
-                id: key,
-                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
-                pins: group
-            )
-        }
-    }
-
     private func loadPins() {
         let items = FileStorageManager.shared.loadAllWithMeta()
         var result: [PhotoPin] = []
         for (url, meta) in items {
             if let m = meta, m.hasLocation != false,
+               !(m.hasLocation == nil && m.latitude == 0 && m.longitude == 0),
                CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: m.latitude, longitude: m.longitude)) {
                 result.append(PhotoPin(
                     coordinate: CLLocationCoordinate2D(

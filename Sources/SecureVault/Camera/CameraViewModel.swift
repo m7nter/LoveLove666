@@ -188,6 +188,7 @@ final class CameraViewModel: NSObject, ObservableObject {
 
     func capturePhoto(completion: @escaping (UIImage, CLLocation?, CLHeading?) -> Void) {
         guard (try? VaultGate.shared.withAccess(generation: ownerGeneration) { true }) == true else { return }
+        if let reason = captureDenialReason() { error = reason; return }
         guard !isCapturing, session.isRunning else { return }
         if event == nil { event = FileStorageManager.shared.newEvent(); persistEvent() }
         pendingContext = event
@@ -198,10 +199,32 @@ final class CameraViewModel: NSObject, ObservableObject {
         shotLocation = location.flatMap { $0.horizontalAccuracy >= 0 && abs($0.timestamp.timeIntervalSinceNow) < 15 ? $0 : nil }
         shotHeading = LocationManager.shared.heading
         queue.async {
+            let denial = DispatchQueue.main.sync { self.captureDenialReason() }
+            guard denial == nil else {
+                DispatchQueue.main.async {
+                    self.isCapturing = false; self.completion = nil; self.pendingContext = nil
+                    self.shotLocation = nil; self.shotHeading = nil; self.error = denial
+                }
+                return
+            }
             let settings = AVCapturePhotoSettings()
             if let dimensions = self.photoDimensions { settings.maxPhotoDimensions = dimensions }
             self.photoOutput.capturePhoto(with: settings, delegate: self)
         }
+    }
+
+    private func captureDenialReason() -> String? {
+        let zones = RestrictedPlacesMonitor.shared.captureDecision()
+        if zones.blocked { return zones.message }
+        let settings = SettingsStore.shared
+        if settings.accuracyProtectionEnabled {
+            guard let location = LocationManager.shared.location,
+                  abs(location.timestamp.timeIntervalSinceNow) < 15, location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= Double(settings.accuracyThreshold) else {
+                return "Нет свежих точных координат — съёмка заблокирована."
+            }
+        }
+        return nil
     }
 
     func didSavePhoto() {
@@ -267,6 +290,10 @@ extension CameraViewModel: AVCapturePhotoCaptureDelegate {
             }
             guard error == nil, let image = image else {
                 self.error = "Не удалось снять фото. Повторите кадр."; return
+            }
+            if let reason = self.captureDenialReason() {
+                self.completion = nil; self.pendingContext = nil; self.shotLocation = nil; self.shotHeading = nil
+                self.error = reason; return
             }
             self.completion?(image, self.shotLocation, self.shotHeading)
             self.completion = nil

@@ -1,0 +1,135 @@
+import XCTest
+import CoreLocation
+@testable import SecureVault
+
+final class RestrictedPlacesTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private func location(_ latitude: Double = 0, _ longitude: Double = 0, accuracy: Double = 5, age: Double = 0) -> CLLocation {
+        CLLocation(coordinate: .init(latitude: latitude, longitude: longitude), altitude: 0,
+                   horizontalAccuracy: accuracy, verticalAccuracy: 1, timestamp: now.addingTimeInterval(-age))
+    }
+    private var enabled: RestrictedPlaceSettings { var s = RestrictedPlaceSettings(); s.enabled = true; return s }
+    private func point(_ latitude: Double = 0, _ longitude: Double = 0, kind: RestrictedPlaceKind = .playground) -> RestrictedPlace {
+        .init(id: "node/1", kind: kind, name: nil, point: .init(lat: latitude, lon: longitude), lines: [], outerRings: [], innerRings: [])
+    }
+    private func snapshot(_ places: [RestrictedPlace], age: Double = 0, radius: Double = 1100) -> RestrictedPlacesSnapshot {
+        .init(center: location(), radius: radius, fetchedAt: now.addingTimeInterval(-age), places: places)
+    }
+    private func decision(_ location: CLLocation?, _ places: [RestrictedPlace] = [], settings: RestrictedPlaceSettings? = nil) -> CaptureZoneDecision {
+        RestrictedPlacesPolicy.evaluate(location: location, settings: settings ?? enabled, snapshot: snapshot(places), now: now)
+    }
+    private func parse(_ json: String) throws -> [RestrictedPlace] { try RestrictedPlacesParser.parse(Data(json.utf8)) }
+
+    func testDisabledAllowsWithoutGPSOrNetwork() {
+        XCTAssertFalse(RestrictedPlacesPolicy.evaluate(location: nil, settings: .init(), snapshot: nil, now: now).blocked)
+    }
+    func testAccuracyAtFifteenAndWorseIsBlocked() {
+        XCTAssertFalse(decision(location(accuracy: 14.99)).blocked)
+        XCTAssertTrue(decision(location(accuracy: 15)).blocked)
+        XCTAssertTrue(decision(location(accuracy: 30)).message.contains("GPS"))
+        XCTAssertTrue(decision(location(accuracy: -1)).blocked)
+    }
+    func testAccuracyThresholdIsConfigurable() {
+        var settings = enabled; settings.maximumAccuracy = 10
+        XCTAssertTrue(decision(location(accuracy: 10), settings: settings).blocked)
+        XCTAssertFalse(decision(location(accuracy: 9), settings: settings).blocked)
+    }
+    func testMissingStaleFutureAndInvalidGPSAreBlocked() {
+        XCTAssertTrue(decision(nil).blocked)
+        XCTAssertTrue(decision(location(age: 16)).blocked)
+        XCTAssertTrue(decision(location(age: -16)).blocked)
+        XCTAssertTrue(decision(location(100, 0)).blocked)
+    }
+    func testMissingExpiredAndOutOfCoverageDataBlock() {
+        XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: location(), settings: enabled, snapshot: nil, now: now).blocked)
+        XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: location(), settings: enabled, snapshot: snapshot([], age: 600), now: now).blocked)
+        XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: location(0.02), settings: enabled, snapshot: snapshot([]), now: now).blocked)
+    }
+    func testSuccessfulEmptyResponseAllowsCapture() { XCTAssertFalse(decision(location()).blocked) }
+    func testPointRadiusIncludesGPSUncertainty() {
+        let place = point(0.00060)
+        let distance = place.distance(from: location())
+        XCTAssertGreaterThan(distance, 65); XCTAssertLessThan(distance, 70)
+        let result = decision(location(), [place])
+        XCTAssertTrue(result.blocked); XCTAssertTrue(result.message.contains("погрешности"))
+        XCTAssertFalse(decision(location(0, 0, accuracy: 1), [place]).blocked)
+    }
+    func testCustomDistanceAndCategoryToggleAreApplied() {
+        let place = point(0.001, kind: .police)
+        XCTAssertFalse(decision(location(), [place]).blocked)
+        var settings = enabled; settings.radii[RestrictedPlaceKind.police.rawValue] = 150
+        XCTAssertTrue(decision(location(), [place], settings: settings).blocked)
+        settings.disabledKinds.insert(.police)
+        XCTAssertFalse(decision(location(), [place], settings: settings).blocked)
+    }
+    func testNoSelectedTypesCannotSilentlyDisableControl() {
+        var settings = enabled; settings.disabledKinds = Set(RestrictedPlaceKind.allCases)
+        XCTAssertTrue(decision(location(), settings: settings).blocked)
+    }
+    func testDistanceToTerritoryEdgeAndInsideTerritory() throws {
+        let places = try parse("""
+        {"elements":[{"type":"way","id":1,"tags":{"amenity":"kindergarten"},"geometry":[
+        {"lat":0,"lon":0},{"lat":0,"lon":0.01},{"lat":0.01,"lon":0.01},{"lat":0.01,"lon":0},{"lat":0,"lon":0}]}]}
+        """)
+        let place = try XCTUnwrap(places.first)
+        XCTAssertEqual(place.distance(from: location(0.005, 0.005)), 0)
+        XCTAssertEqual(place.distance(from: location(0.005, -0.0003)), 33.4, accuracy: 1)
+        XCTAssertEqual(place.distance(from: location(0, 0)), 0, accuracy: 0.1)
+    }
+    func testSplitMultipolygonAndCourtyardHole() throws {
+        let places = try parse("""
+        {"elements":[{"type":"relation","id":2,"tags":{"amenity":"school","type":"multipolygon"},"members":[
+        {"type":"way","role":"outer","geometry":[{"lat":0,"lon":0},{"lat":0,"lon":0.01},{"lat":0.01,"lon":0.01}]},
+        {"type":"way","role":"outer","geometry":[{"lat":0,"lon":0},{"lat":0.01,"lon":0},{"lat":0.01,"lon":0.01}]},
+        {"type":"way","role":"inner","geometry":[{"lat":0.004,"lon":0.004},{"lat":0.004,"lon":0.006},{"lat":0.006,"lon":0.006},{"lat":0.006,"lon":0.004},{"lat":0.004,"lon":0.004}]}]}]}
+        """)
+        let place = try XCTUnwrap(places.first)
+        XCTAssertEqual(place.outerRings.count, 1)
+        XCTAssertEqual(place.distance(from: location(0.002, 0.002)), 0)
+        XCTAssertGreaterThan(place.distance(from: location(0.005, 0.005)), 100)
+    }
+    func testPartialResponseAndBrokenGeometryFailClosed() {
+        XCTAssertThrowsError(try parse("{\"remark\":\"runtime error: timeout\",\"elements\":[]}"))
+        XCTAssertThrowsError(try parse("{\"elements\":[{\"type\":\"way\",\"id\":1,\"tags\":{\"amenity\":\"school\"}}]}"))
+        XCTAssertThrowsError(try parse("{\"elements\":[{\"type\":\"node\",\"id\":1,\"lat\":100,\"lon\":0,\"tags\":{\"amenity\":\"school\"}}]}"))
+        XCTAssertThrowsError(try RestrictedPlacesParser.joinRings([[.init(lat: 0, lon: 0), .init(lat: 1, lon: 1)]]))
+    }
+    func testCategoriesAndSpecificServicePriority() {
+        XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"УФСБ России"]), .security)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["amenity":"police","name":"Управление МВД"]), .police)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["government":"recruitment"]), .recruitment)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["government":"prosecutor"]), .prosecutor)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["amenity":"courthouse"]), .court)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["amenity":"townhall"]), .administration)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["landuse":"military"]), .military)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","government":"tax"]), .government)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["leisure":"pitch"]), .sports)
+        XCTAssertNil(RestrictedPlaceKind.classify(["amenity":"cafe"]))
+    }
+    func testDefaultDistancesPersistenceAndReset() throws {
+        XCTAssertEqual(enabled.radius(for: .school), 65)
+        XCTAssertEqual(enabled.radius(for: .security), 100)
+        let store = SettingsStore.shared, previous = store.restrictedPlaces
+        defer { store.restrictedPlaces = previous }
+        var settings = enabled; settings.disabledKinds = [.school]; settings.radii["police"] = 250
+        store.restrictedPlaces = settings
+        let data = try XCTUnwrap(UserDefaults.standard.data(forKey: "restrictedPlaces"))
+        XCTAssertEqual(try JSONDecoder().decode(RestrictedPlaceSettings.self, from: data), settings)
+        store.resetToFactory()
+        XCTAssertFalse(store.restrictedPlaces.enabled)
+        XCTAssertEqual(store.restrictedPlaces.radius(for: .police), 100)
+    }
+    func testQueryRequestsGeometryAndEnclosingTerritories() {
+        let query = RestrictedPlacesMonitor.query(near: location(55.75, 37.62), radius: 1100)
+        XCTAssertTrue(query.contains("is_in(55.7500000,37.6200000)"))
+        XCTAssertTrue(query.contains("pivot.enclosing"))
+        XCTAssertTrue(query.contains("out body geom"))
+        XCTAssertFalse(query.contains("out center"))
+    }
+    func testClosestReasonsAreShownFirst() {
+        let result = decision(location(), [point(0.0004, kind: .school), point(0.0001)])
+        XCTAssertTrue(result.blocked)
+        XCTAssertTrue(result.message.hasPrefix("Детская площадка —"))
+        XCTAssertTrue(result.message.contains("Школа —"))
+    }
+}
