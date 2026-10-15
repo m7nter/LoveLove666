@@ -136,8 +136,8 @@ struct CalculatorView: View {
     }
     private func unitButton(_ title: String, source: Bool) -> some View {
         Button { selectingSource = source } label: {
-            HStack(spacing: 2) { Text(title); Image(systemName: "chevron.up.chevron.down").font(.system(size: 8)) }
-                .font(.system(size: 13)).foregroundStyle(.gray)
+            HStack(spacing: 4) { Text(title).fontWeight(.semibold); Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .bold)) }
+                .font(.system(size: 18)).foregroundStyle(.gray)
         }.accessibilityLabel(source ? "Исходная единица" : "Результирующая единица")
     }
     private func scienceGrid(width: CGFloat, height: CGFloat, gap: CGFloat) -> some View {
@@ -184,27 +184,67 @@ struct CalculatorView: View {
 
 private struct MathNotesView: View {
     @ObservedObject var vm: CalculatorViewModel
-    @State private var note = ""
-    @State private var result = ""
+    @State private var showEditor = false
+    @State private var noteText = ""
+    @State private var noteDate = Date()
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Математические заметки").font(.headline)
-            TextField("Введите выражение", text: $note)
-                .textFieldStyle(.roundedBorder)
-                .keyboardType(.numbersAndPunctuation)
+        VStack(spacing: 0) {
             HStack {
-                Button("Решить") {
-                    let normalized = note.replacingOccurrences(of: ",", with: ".")
-                    if let number = Double(normalized) { result = CalculatorViewModel.format(number) }
-                    else { result = "Введите выражение в стандартном режиме" }
-                }.buttonStyle(.borderedProminent).tint(.orange)
-                Button("Очистить") { note = ""; result = "" }.buttonStyle(.bordered)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Математика").font(.system(size: 28, weight: .bold))
+                    Label("Хранилище заполнено", systemImage: "checkmark.icloud")
+                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                CalculatorGlyph().frame(width: 44, height: 44)
+                    .frame(width: 48, height: 48).background(.ultraThinMaterial, in: Circle())
+                Image(systemName: "ellipsis").font(.system(size: 19, weight: .bold))
+                    .frame(width: 48, height: 48).background(.ultraThinMaterial, in: Circle())
             }
-            if !result.isEmpty { Text(result).font(.system(size: 28, weight: .medium)).frame(maxWidth: .infinity, alignment: .trailing) }
-            Text("Рукописный ввод и графики появятся в следующем обновлении.")
-                .font(.footnote).foregroundStyle(.secondary)
+            .padding(.horizontal, 4).padding(.bottom, 28)
+
+            Text(noteDate.formatted(.dateTime.month(.wide)))
+                .font(.system(size: 30, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading)
+            Divider().overlay(.white.opacity(0.2))
+
+            if !noteText.isEmpty {
+                Button { showEditor = true } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(noteText).font(.system(size: 22, weight: .semibold))
+                            Text(noteDate, format: .dateTime.day().month(.twoDigits).year())
+                                .font(.system(size: 16, weight: .medium)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.15)).frame(width: 56, height: 56)
+                    }.foregroundStyle(.white).padding(.vertical, 16)
+                }.buttonStyle(.plain)
+                Divider().overlay(.white.opacity(0.2))
+            } else {
+                Spacer()
+                Text("Нет заметок").font(.system(size: 22, weight: .medium)).foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            HStack(spacing: 12) {
+                HStack { Image(systemName: "magnifyingglass"); Text("Поиск").foregroundStyle(.secondary); Spacer(); Image(systemName: "mic.fill") }
+                    .font(.system(size: 18)).padding(.horizontal, 18).frame(height: 52)
+                    .background(.ultraThinMaterial, in: Capsule())
+                Button { showEditor = true } label: { Image(systemName: "square.and.pencil").font(.system(size: 22, weight: .semibold)).frame(width: 56, height: 56).background(.ultraThinMaterial, in: Circle()) }
+            }
+            .padding(.top, 16)
         }
-        .padding(16).background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 20))
+        .padding(.horizontal, 12)
+        .sheet(isPresented: $showEditor) {
+            VStack(spacing: 18) {
+                Text("Новая заметка").font(.headline)
+                TextField("Напишите вычисление", text: $noteText, axis: .vertical)
+                    .font(.system(size: 22)).textFieldStyle(.roundedBorder).padding(.horizontal)
+                Button("Готово") { noteDate = Date(); showEditor = false }
+                    .buttonStyle(.borderedProminent).tint(.orange)
+            }.padding(24).presentationDetents([.medium]).preferredColorScheme(.dark)
+        }
     }
 }
 
@@ -273,7 +313,7 @@ struct ConversionPicker: View {
                                         .frame(width: 20).opacity(selected ? 1 : 0)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(choice.unit.name).font(.system(size: 17, weight: .medium))
-                                        Text(choice.unit.id).font(.system(size: 13))
+                                        Text(choice.unit.id).font(.system(size: 18, weight: .semibold))
                                             .foregroundStyle(selected ? .orange : .secondary)
                                     }
                                     Spacer(minLength: 0)
@@ -290,6 +330,13 @@ struct ConversionPicker: View {
                 .onChange(of: model.currencyUnits.count) { _ in
                     if search.isEmpty { proxy.scrollTo(model.category.id + ":" + selectedID, anchor: .top) }
                 }
+            }
+            if model.category == .currency {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("yahoo!finance").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.82))
+                    Spacer()
+                    Text(model.updateLabel).font(.system(size: 15)).foregroundStyle(.secondary)
+                }.padding(.horizontal, 28).padding(.top, 8)
             }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.white)
@@ -464,45 +511,50 @@ struct HistoryView: View {
     @Binding var history: [HistoryRecord]
     var onSelect: (HistoryRecord) -> Void
     @Environment(\.dismiss) var dismiss
+    @State private var editing = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                if history.isEmpty {
-                    Text("История пуста")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(historySections.indices, id: \.self) { sectionIndex in
-                        Section(historySections[sectionIndex].0) {
+        VStack(spacing: 0) {
+            Capsule().fill(.white.opacity(0.45)).frame(width: 60, height: 5).padding(.top, 10).padding(.bottom, 14)
+            HStack {
+                Button(editing ? "Готово" : "Править") { editing.toggle() }
+                    .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 20, weight: .bold)).frame(width: 44, height: 44).background(.white.opacity(0.12), in: Circle()) }
+            }.padding(.horizontal, 20).padding(.bottom, 12)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if history.isEmpty {
+                        Text("История пуста").foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.top, 60)
+                    } else {
+                        ForEach(historySections.indices, id: \.self) { sectionIndex in
+                            Text(historySections[sectionIndex].0)
+                                .font(.system(size: 18, weight: .bold)).foregroundStyle(.secondary)
+                                .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
                             ForEach(historySections[sectionIndex].1.reversed()) { record in
                                 Button { onSelect(record); dismiss() } label: {
-                                    VStack(alignment: .trailing, spacing: 4) {
-                                        Text(record.expression).font(.system(size: 16)).foregroundStyle(.secondary)
-                                        Text(record.result).font(.system(size: 22, weight: .medium)).foregroundStyle(.white)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                                }
-                                .contextMenu { Button("Скопировать") { UIPasteboard.general.string = record.text } }
+                                    HStack(spacing: 10) {
+                                        if editing { Image(systemName: "minus.circle.fill").foregroundStyle(.red) }
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(record.expression).font(.system(size: 17)).foregroundStyle(.secondary).lineLimit(1)
+                                            Text(record.result).font(.system(size: 25, weight: .medium)).foregroundStyle(.white)
+                                        }
+                                        Spacer()
+                                    }.padding(.horizontal, 20).padding(.vertical, 17)
+                                }.buttonStyle(.plain)
+                                Divider().overlay(.white.opacity(0.16)).padding(.horizontal, 20)
                             }
                         }
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Color.black)
-            .navigationTitle("История")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Очистить", role: .destructive) { history.removeAll() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Готово") { dismiss() }
-                        .foregroundColor(.orange)
-                }
-            }
         }
+        .background(.ultraThinMaterial)
         .preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.hidden)
     }
 
     private var historySections: [(String, [HistoryRecord])] {
