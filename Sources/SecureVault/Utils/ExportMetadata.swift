@@ -30,7 +30,7 @@ enum ExportMetadata {
         guard let meta, meta.hasLocation != false,
               meta.hasLocation == true || meta.latitude != 0 || meta.longitude != 0,
               CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: meta.latitude, longitude: meta.longitude)) else { return nil }
-        return String(format: "%.7f, %.7f", locale: Locale(identifier: "en_US_POSIX"), meta.latitude, meta.longitude)
+        return String(format: "%.6f, %.6f", locale: Locale(identifier: "en_US_POSIX"), meta.latitude, meta.longitude)
     }
 
     // The numbering follows attachment order, including photos without GPS.
@@ -38,7 +38,7 @@ enum ExportMetadata {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.timeZone = timeZone
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "dd.MM.yyyy"
         return "Выгрузка \(formatter.string(from: exportedAt)). Координаты:\n"
             + records.enumerated().map { "\($0.offset + 1)) \(coordinates($0.element.meta) ?? "нет данных")" }.joined(separator: "\n")
     }
