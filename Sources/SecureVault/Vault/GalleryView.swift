@@ -76,8 +76,8 @@ struct GalleryView: View {
                                                 eventPath.append(group.id)
                                             }
                                         }
-                                        .accessibilityIdentifier("gallery.event." + group.id)
                                         .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
+                                        .accessibilityIdentifier("gallery.event." + group.id)
                                         }
                                     }
                                 }

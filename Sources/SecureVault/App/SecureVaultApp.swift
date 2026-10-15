@@ -23,22 +23,6 @@ struct SecureVaultApp: App {
             try? KeychainCodeStore.write("1357", for: "mainCode")
             UserDefaults.standard.set(2, forKey: "vaultAccessFlowVersion")
         }
-        if ProcessInfo.processInfo.arguments.contains("--test-gallery") {
-            let storage = FileStorageManager.shared
-            for url in storage.loadAll() { storage.delete(url: url) }
-            let eventID = UUID(uuidString: "12345678-1234-1234-1234-123456789012")!
-            for index in 1...2 {
-                let size = index == 1 ? CGSize(width: 400, height: 300) : CGSize(width: 300, height: 400)
-                let format = UIGraphicsImageRendererFormat(); format.scale = 1
-                let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-                    UIColor.orange.setFill(); UIRectFill(CGRect(origin: .zero, size: size))
-                    UIColor.blue.setFill(); UIRectFill(CGRect(x: 10, y: 10, width: size.width - 20, height: size.height - 20))
-                }
-                let context = CaptureContext(eventID: eventID, folder: "0.5", expectedCount: 2,
-                    index: index, eventNumber: 1, generation: VaultGate.shared.generation)
-                _ = storage.save(image: image, context: context)
-            }
-        }
         #endif
         setupCrashLogging()
         PhotoExporter.cleanupTemporaryExports()
@@ -206,6 +190,25 @@ struct RootView: View {
     private func unlock() {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--test-gallery") {
+            // Encryption is available after launch, never during App.init.
+            let storage = FileStorageManager.shared
+            for url in storage.loadAll() { storage.delete(url: url) }
+            let eventID = UUID(uuidString: "12345678-1234-1234-1234-123456789012")!
+            for index in 1...2 {
+                let size = index == 1 ? CGSize(width: 400, height: 300) : CGSize(width: 300, height: 400)
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                    UIColor.orange.setFill(); UIRectFill(CGRect(origin: .zero, size: size))
+                    UIColor.blue.setFill(); UIRectFill(CGRect(x: 10, y: 10, width: size.width - 20, height: size.height - 20))
+                }
+                let context = CaptureContext(eventID: eventID, folder: "0.5", expectedCount: 2,
+                    index: index, eventNumber: 1, generation: VaultGate.shared.generation)
+                precondition(storage.save(image: image, context: context) != nil, "UI test photo could not be saved")
+            }
+        }
+        #endif
         needsSetup = false; showAccess = false
         isUnlocked = true; isCameraOnly = false
         onStartTimer()

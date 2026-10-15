@@ -177,7 +177,8 @@ struct ConversionPicker: View {
     @State private var search = ""
     private var selectedID: String { source ? model.from : model.to }
     private var categories: [ConversionCategory] {
-        ConversionCategory.allCases.sorted { $0.rawValue.localizedStandardCompare($1.rawValue) == .orderedAscending }
+        [.angle, .area, .currency, .data, .energy, .fuel, .length,
+         .power, .pressure, .speed, .temperature, .time, .volume, .mass]
     }
     private var rows: [ConversionChoice] {
         let choices: [ConversionCategory] = search.isEmpty ? [model.category] : categories
@@ -309,7 +310,9 @@ private struct CalculatorTopSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: Circle())
+            content.background {
+                Circle().fill(.clear).glassEffect(.regular.interactive(), in: Circle())
+            }
         } else {
             content.background(.ultraThinMaterial, in: Circle())
         }
@@ -392,7 +395,11 @@ struct CalculatorButton: View {
         let content = label.frame(width: size, height: height ?? size)
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.tint(backgroundColor).interactive(), in: Capsule())
+            // Keep text and symbols above the glass backdrop. Putting the
+            // entire label into the effect can drop glyphs after state changes.
+            Color.clear.frame(width: size, height: height ?? size)
+                .glassEffect(.regular.tint(backgroundColor).interactive(), in: Capsule())
+                .overlay(content)
         } else {
             content.background(backgroundColor, in: Capsule())
         }
