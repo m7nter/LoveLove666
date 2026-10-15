@@ -9,7 +9,6 @@ struct CalculatorView: View {
     @State private var showHistory = false
     @State private var scientific = false
     @State private var converting = false
-    @State private var mathNotes = false
     @State private var selectingSource: Bool?
     private let buttons = [["⌫", "CLEAR", "%", "÷"], ["7", "8", "9", "×"],
                            ["4", "5", "6", "−"], ["1", "2", "3", "+"], ["+/−", "0", ",", "="]]
@@ -31,11 +30,7 @@ struct CalculatorView: View {
             VStack(spacing: 0) {
                 toolbar.frame(height: 48).padding(.horizontal, inset)
                 Spacer(minLength: 6)
-                if mathNotes {
-                    MathNotesView(vm: vm)
-                        .padding(.horizontal, inset)
-                        .padding(.bottom, 12)
-                } else if converting {
+                if converting {
                     conversionDisplay(size: min(58, width * 0.70))
                         .padding(.horizontal, inset + 3).padding(.bottom, 12)
                 } else {
@@ -43,15 +38,15 @@ struct CalculatorView: View {
                         .padding(.horizontal, inset).padding(.bottom, scientific ? 12 : 7)
                 }
                 VStack(spacing: gap) {
-                    if !mathNotes && scientific { scienceGrid(width: geometry.size.width - inset * 2, height: keyHeight, gap: gap) }
-                    if !mathNotes { ForEach(buttons.indices, id: \.self) { row in
+                    if scientific { scienceGrid(width: geometry.size.width - inset * 2, height: keyHeight, gap: gap) }
+                    ForEach(buttons.indices, id: \.self) { row in
                         HStack(spacing: gap) {
                             ForEach(buttons[row], id: \.self) { symbol in
                                 CalculatorButton(title: symbol == "CLEAR" ? vm.clearButtonTitle : symbol,
                                     size: width, height: keyHeight, isSelected: vm.activeOperator == symbol, action: vm.tap)
                             }
                         }
-                    } }
+                    }
                 }
                 .padding(.horizontal, inset).padding(.bottom, 28)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -79,9 +74,7 @@ struct CalculatorView: View {
         }
         .onChange(of: converting) { value in
             vm.allowsVaultEntry = !value
-            if value { mathNotes = false }
         }
-        .onChange(of: scientific) { value in if value { mathNotes = false } }
         .sheet(isPresented: $showHistory) {
             HistoryView(history: $vm.history, onSelect: vm.useHistory)
         }
@@ -169,9 +162,6 @@ struct CalculatorView: View {
                     Label("Стандартный", systemImage: "plus.forwardslash.minus").tag(false)
                     Label("Научный", systemImage: "function").tag(true)
                 }
-                Button { mathNotes = true; scientific = false; converting = false } label: {
-                    Label("Математические заметки", systemImage: "function")
-                }
                 Divider()
                 Toggle(isOn: $converting) { Label("Конвертация", systemImage: "arrow.left.arrow.right") }
             } label: {
@@ -179,72 +169,6 @@ struct CalculatorView: View {
             }.buttonStyle(.plain).modifier(CalculatorTopSurface())
                 .accessibilityLabel("Режим калькулятора").accessibilityIdentifier("calculator.menu")
         }.foregroundStyle(.white)
-    }
-}
-
-private struct MathNotesView: View {
-    @ObservedObject var vm: CalculatorViewModel
-    @State private var showEditor = false
-    @State private var noteText = ""
-    @State private var noteDate = Date()
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Математика").font(.system(size: 28, weight: .bold))
-                    Label("Хранилище заполнено", systemImage: "checkmark.icloud")
-                        .font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                CalculatorGlyph().frame(width: 44, height: 44)
-                    .frame(width: 48, height: 48).background(.ultraThinMaterial, in: Circle())
-                Image(systemName: "ellipsis").font(.system(size: 19, weight: .bold))
-                    .frame(width: 48, height: 48).background(.ultraThinMaterial, in: Circle())
-            }
-            .padding(.horizontal, 4).padding(.bottom, 28)
-
-            Text(noteDate.formatted(.dateTime.month(.wide)))
-                .font(.system(size: 30, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading)
-            Divider().overlay(.white.opacity(0.2))
-
-            if !noteText.isEmpty {
-                Button { showEditor = true } label: {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(noteText).font(.system(size: 22, weight: .semibold))
-                            Text(noteDate, format: .dateTime.day().month(.twoDigits).year())
-                                .font(.system(size: 16, weight: .medium)).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.15)).frame(width: 56, height: 56)
-                    }.foregroundStyle(.white).padding(.vertical, 16)
-                }.buttonStyle(.plain)
-                Divider().overlay(.white.opacity(0.2))
-            } else {
-                Spacer()
-                Text("Нет заметок").font(.system(size: 22, weight: .medium)).foregroundStyle(.secondary)
-                Spacer()
-            }
-
-            HStack(spacing: 12) {
-                HStack { Image(systemName: "magnifyingglass"); Text("Поиск").foregroundStyle(.secondary); Spacer(); Image(systemName: "mic.fill") }
-                    .font(.system(size: 18)).padding(.horizontal, 18).frame(height: 52)
-                    .background(.ultraThinMaterial, in: Capsule())
-                Button { showEditor = true } label: { Image(systemName: "square.and.pencil").font(.system(size: 22, weight: .semibold)).frame(width: 56, height: 56).background(.ultraThinMaterial, in: Circle()) }
-            }
-            .padding(.top, 16)
-        }
-        .padding(.horizontal, 12)
-        .sheet(isPresented: $showEditor) {
-            VStack(spacing: 18) {
-                Text("Новая заметка").font(.headline)
-                TextField("Напишите вычисление", text: $noteText, axis: .vertical)
-                    .font(.system(size: 22)).textFieldStyle(.roundedBorder).padding(.horizontal)
-                Button("Готово") { noteDate = Date(); showEditor = false }
-                    .buttonStyle(.borderedProminent).tint(.orange)
-            }.padding(24).presentationDetents([.medium]).preferredColorScheme(.dark)
-        }
     }
 }
 
