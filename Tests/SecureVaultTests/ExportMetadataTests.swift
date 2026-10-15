@@ -15,7 +15,7 @@ final class ExportMetadataTests: XCTestCase {
     }
     func testCoordinatesOnlyDoesNotIncludeOtherFields() throws {
         let text = try XCTUnwrap(ExportMetadata.archiveText([record(0), record(1, located: false)], options: .coordinates))
-        XCTAssertEqual(text, "1) 55.7777777, 67.7777777\n2) нет данных\n")
+        XCTAssertEqual(text, "1) 55.777778, 67.777778\n2) нет данных\n")
         for hidden in ["private", "1970", "99", "123", "456", "photo-", "https"] { XCTAssertFalse(text.contains(hidden)) }
     }
     func testSelectedFieldsAreIndependentAndNoneOmitsFile() throws {
@@ -27,10 +27,10 @@ final class ExportMetadataTests: XCTestCase {
         XCTAssertFalse(notesAndFolder.contains("Дата")); XCTAssertFalse(notesAndFolder.contains("Координаты"))
         XCTAssertNil(ExportMetadata.archiveText([record(0)], options: []))
     }
-    func testMessageTimeAttachmentOrderAndMissingLocation() {
+    func testMessageDateAttachmentOrderAndMissingLocation() {
         let text = ExportMetadata.coordinateMessage([record(1, located: false), record(0)],
             exportedAt: Date(timeIntervalSince1970: 80940), timeZone: TimeZone(secondsFromGMT: 0)!)
-        XCTAssertEqual(text, "Выгрузка 22:29. Координаты:\n1) нет данных\n2) 55.7777777, 67.7777777")
+        XCTAssertEqual(text, "Выгрузка 01.01.1970. Координаты:\n1) нет данных\n2) 55.777778, 67.777778")
     }
     func testLegacyUnknownAndInvalidCoordinatesDoNotInventGPS() {
         XCTAssertNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date())))
@@ -62,7 +62,7 @@ final class ExportMetadataTests: XCTestCase {
         var text = Data(), jpeg = Data()
         _ = try archive.extract(XCTUnwrap(archive["metadata.txt"])) { text.append($0) }
         _ = try archive.extract(XCTUnwrap(archive["photo-0001.jpg"])) { jpeg.append($0) }
-        XCTAssertEqual(String(data: text, encoding: .utf8), "1) 55.7777777, 67.7777777\n")
+        XCTAssertEqual(String(data: text, encoding: .utf8), "1) 55.777778, 67.777778\n")
         XCTAssertEqual(UIImage(data: jpeg)?.size, image.size)
         let source = try XCTUnwrap(CGImageSourceCreateWithData(jpeg as CFData, nil))
         let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any])
