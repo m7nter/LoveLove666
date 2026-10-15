@@ -70,6 +70,7 @@ final class OfflineMapManager: ObservableObject {
     }
 
     func open() {
+        LocationManager.shared.requestAndStart()
         if !initialized {
             initialized = true; OpenStreetMapConfiguration.configure()
             packsObservation = MLNOfflineStorage.shared.observe(\.packs, options: [.initial, .new]) { [weak self] _, _ in
