@@ -149,10 +149,16 @@ enum RestrictedPlacesParser {
         // A bbox query can return a relation whose members are incomplete at a
         // tile edge. Keep valid objects from the response instead of rejecting
         // the entire tile because of one malformed element.
-        return response.elements.compactMap { element in
+        let classified = response.elements.filter { RestrictedPlaceKind.classify($0.tags ?? [:]) != nil }
+        let places = classified.compactMap { element in
             do { return try parseElement(element) }
             catch { return nil }
         }
+        // A response containing only malformed restricted objects is not safe
+        // to install. Mixed responses are accepted so one broken relation at a
+        // tile edge cannot discard valid nearby zones.
+        if !classified.isEmpty && places.isEmpty { throw RestrictedPlacesError.invalidGeometry }
+        return places
     }
 
     private static func parseElement(_ element: Element) throws -> RestrictedPlace? {
