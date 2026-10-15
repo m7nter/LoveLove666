@@ -33,14 +33,31 @@ enum ExportMetadata {
         return String(format: "%.6f, %.6f", locale: Locale(identifier: "en_US_POSIX"), meta.latitude, meta.longitude)
     }
 
-    // The numbering follows attachment order, including photos without GPS.
+    private static func eventKey(_ record: ExportPhotoRecord, index: Int) -> String {
+        if let eventID = record.meta?.eventID { return "event:\(eventID.uuidString)" }
+        return "photo:\(index)"
+    }
+
+    private static func firstEventIndexes(_ records: [ExportPhotoRecord]) -> Set<Int> {
+        var seen = Set<String>()
+        return Set(records.indices.filter { index in
+            seen.insert(eventKey(records[index], index: index)).inserted
+        })
+    }
+
+    // The numbering follows event order. A multi-photo event contributes one
+    // coordinate, taken from its first photo; legacy photos without an event
+    // identifier remain individual entries.
     static func coordinateMessage(_ records: [ExportPhotoRecord], exportedAt: Date = Date(), timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.timeZone = timeZone
         formatter.dateFormat = "dd.MM.yyyy"
+        let indexes = firstEventIndexes(records).sorted()
         return "Выгрузка \(formatter.string(from: exportedAt)). Координаты:\n"
-            + records.enumerated().map { "\($0.offset + 1)) \(coordinates($0.element.meta) ?? "нет данных")" }.joined(separator: "\n")
+            + indexes.enumerated().map { offset, index in
+                "\(offset + 1)) \(coordinates(records[index].meta) ?? "нет данных")"
+            }.joined(separator: "\n")
     }
 
     static func archiveText(_ records: [ExportPhotoRecord], options: ArchiveMetadataOptions) -> String? {
@@ -48,14 +65,20 @@ enum ExportMetadata {
         // This preset contains literally just numbered coordinates, without
         // filenames, dates, folder names, event IDs, notes or map links.
         if options == .coordinates {
-            return records.enumerated().map { "\($0.offset + 1)) \(coordinates($0.element.meta) ?? "нет данных")" }.joined(separator: "\n") + "\n"
+            let indexes = firstEventIndexes(records).sorted()
+            return indexes.enumerated().map { offset, index in
+                "\(offset + 1)) \(coordinates(records[index].meta) ?? "нет данных")"
+            }.joined(separator: "\n") + "\n"
         }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.dateFormat = "dd.MM.yyyy HH:mm:ss"
-        return records.map { record in
+        let firstIndexes = firstEventIndexes(records)
+        return records.enumerated().map { index, record in
             var lines = ["Файл: \(record.filename)"]
-            if options.contains(.coordinates) { lines.append("Координаты: \(coordinates(record.meta) ?? "нет данных")") }
+            if options.contains(.coordinates) && firstIndexes.contains(index) {
+                lines.append("Координаты: \(coordinates(record.meta) ?? "нет данных")")
+            }
             if options.contains(.mapLink), let location = coordinates(record.meta) {
                 lines.append("Карта: https://maps.google.com/?q=" + location.replacingOccurrences(of: " ", with: ""))
             }

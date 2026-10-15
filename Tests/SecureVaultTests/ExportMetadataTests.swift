@@ -32,6 +32,23 @@ final class ExportMetadataTests: XCTestCase {
             exportedAt: Date(timeIntervalSince1970: 80940), timeZone: TimeZone(secondsFromGMT: 0)!)
         XCTAssertEqual(text, "Выгрузка 01.01.1970. Координаты:\n1) нет данных\n2) 55.777778, 67.777778")
     }
+    func testCoordinateExportUsesOneCoordinatePerEvent() throws {
+        let eventID = UUID()
+        var first = record(0).meta!
+        first.eventID = eventID; first.eventIndex = 1
+        var second = record(1).meta!
+        second.eventID = eventID; second.eventIndex = 2
+        let records = [
+            ExportPhotoRecord(filename: "first.jpg", meta: first, folder: "event"),
+            ExportPhotoRecord(filename: "second.jpg", meta: second, folder: "event")
+        ]
+        let message = ExportMetadata.coordinateMessage(records, exportedAt: Date(timeIntervalSince1970: 0), timeZone: TimeZone(secondsFromGMT: 0)!)
+        XCTAssertEqual(message, "Выгрузка 01.01.1970. Координаты:\n1) 55.777778, 67.777778")
+        let archive = try XCTUnwrap(ExportMetadata.archiveText(records, options: .coordinates))
+        XCTAssertEqual(archive, "1) 55.777778, 67.777778\n")
+        let standard = try XCTUnwrap(ExportMetadata.archiveText(records, options: [.coordinates, .event]))
+        XCTAssertEqual(standard.components(separatedBy: "Координаты:").count - 1, 1)
+    }
     func testLegacyUnknownAndInvalidCoordinatesDoNotInventGPS() {
         XCTAssertNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date())))
         XCTAssertNotNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date(), hasLocation: true)))
