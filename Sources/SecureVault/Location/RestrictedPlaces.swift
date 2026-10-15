@@ -146,7 +146,16 @@ enum RestrictedPlacesParser {
         let response = try JSONDecoder().decode(Response.self, from: data)
         // Overpass can return HTTP 200 with a timeout remark and partial elements.
         guard response.remark == nil else { throw RestrictedPlacesError.incompleteResponse }
-        return try response.elements.compactMap { element in
+        // A bbox query can return a relation whose members are incomplete at a
+        // tile edge. Keep valid objects from the response instead of rejecting
+        // the entire tile because of one malformed element.
+        return response.elements.compactMap { element in
+            do { return try parseElement(element) }
+            catch { return nil }
+        }
+    }
+
+    private static func parseElement(_ element: Element) throws -> RestrictedPlace? {
             let tags = element.tags ?? [:]
             guard let kind = RestrictedPlaceKind.classify(tags) else { return nil }
             var point: OSMCoordinate?
@@ -191,7 +200,6 @@ enum RestrictedPlacesParser {
             return RestrictedPlace(id: "\(element.type)/\(element.id)", kind: kind,
                                    name: tags["name:ru"] ?? tags["name"], point: point,
                                    lines: lines, outerRings: outer, innerRings: inner)
-        }
     }
 
     static func joinRings(_ fragments: [[OSMCoordinate]]) throws -> [[OSMCoordinate]] {
