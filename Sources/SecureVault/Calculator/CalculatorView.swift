@@ -87,7 +87,6 @@ struct CalculatorView: View {
                     .lineLimit(1).minimumScaleFactor(0.5)
             }
             Text(vm.display).font(.system(size: size, weight: .regular, design: .default))
-                .monospacedDigit()
                 .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.3)
                 .modifier(CalculatorNumberTransition())
                 .accessibilityIdentifier("calculator.display")
