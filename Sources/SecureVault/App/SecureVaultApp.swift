@@ -183,7 +183,7 @@ struct RootView: View {
             needsSetup = code.isEmpty || code == "2026"
             accessError = nil
             accessChecked = true
-            if initial && needsSetup { showAccess = true }
+            if initial && needsSetup && !isUITestFixture { showAccess = true }
         } catch {
             if initial {
                 // A reinstall may retain an inaccessible keychain item. Treat it as a
@@ -191,11 +191,19 @@ struct RootView: View {
                 needsSetup = true
                 accessError = nil
                 accessChecked = true
-                showAccess = true
+                if !isUITestFixture { showAccess = true }
             } else {
                 accessError = "Защищённое хранилище iOS: \(error.localizedDescription). Код ошибки: \((error as NSError).code)."
             }
         }
+    }
+    private var isUITestFixture: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--test-legacy-lock") || args.contains("--test-calculator")
+        #else
+        return false
+        #endif
     }
     private func openHiddenAccess() {
         guard !VaultLifecycle.shared.blocksUI else { onBlockedAccess(); return }
