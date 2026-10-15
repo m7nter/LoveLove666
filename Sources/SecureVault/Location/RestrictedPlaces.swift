@@ -137,7 +137,10 @@ enum RestrictedPlacesParser {
         let geometry: [OSMCoordinate]?
         let members: [Member]?
     }
-    private struct Member: Decodable { let type: String; let role: String; let geometry: [OSMCoordinate]? }
+    private struct Member: Decodable {
+        let type: String; let role: String; let geometry: [OSMCoordinate]?
+        let lat: Double?; let lon: Double?
+    }
 
     static func parse(_ data: Data) throws -> [RestrictedPlace] {
         let response = try JSONDecoder().decode(Response.self, from: data)
@@ -157,6 +160,23 @@ enum RestrictedPlacesParser {
                 if geometry.first == geometry.last, tags["area"] != "no" { outer = [geometry] }
                 else { lines = [geometry] }
             } else if element.type == "relation", let members = element.members {
+                if tags["type"] == "site" {
+                    // Some campuses are collections of buildings/points rather
+                    // than a perimeter. Use every supplied footprint; never
+                    // invent an enclosing fence or fall back to a centre.
+                    for member in members {
+                        if member.type == "node", let lat = member.lat, let lon = member.lon {
+                            let p = OSMCoordinate(lat: lat, lon: lon)
+                            guard p.valid else { throw RestrictedPlacesError.invalidGeometry }
+                            lines.append([p])
+                        } else if member.type == "way", let g = member.geometry, g.count >= 2, g.allSatisfy(\.valid) {
+                            if g.first == g.last { outer.append(g) } else { lines.append(g) }
+                        } else { throw RestrictedPlacesError.invalidGeometry }
+                    }
+                    guard !lines.isEmpty || !outer.isEmpty else { throw RestrictedPlacesError.invalidGeometry }
+                    return RestrictedPlace(id: "relation/\(element.id)", kind: kind,
+                        name: tags["name:ru"] ?? tags["name"], point: nil, lines: lines, outerRings: outer, innerRings: [])
+                }
                 for role in ["outer", "inner"] {
                     let relevant = members.filter { $0.type == "way" && ($0.role == role || (role == "outer" && $0.role.isEmpty)) }
                     let fragments = try relevant.map { member -> [OSMCoordinate] in

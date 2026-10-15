@@ -41,6 +41,7 @@ final class OfflineMapManager: ObservableObject {
     private let geocoder = CLGeocoder()
     private var lastSuggestion: Date = .distantPast
     private var initialized = false
+    private var suggestionAttempts = 0
     private var blockedPacks: Set<String> = []
     private let session: URLSession
 
@@ -51,6 +52,11 @@ final class OfflineMapManager: ObservableObject {
         config.timeoutIntervalForRequest = 200; config.timeoutIntervalForResource = 220
         config.httpAdditionalHeaders = ["User-Agent": "Calculator/1.2.0 (com.securevault.app)"]
         session = URLSession(configuration: config)
+        LocationManager.shared.$location.throttle(for: .seconds(10), scheduler: DispatchQueue.main, latest: true).sink { [weak self] _ in
+            guard let self, self.initialized, self.suggestedRegionID == nil, self.suggestionAttempts < 3,
+                  UIApplication.shared.applicationState == .active else { return }
+            self.detectRegion()
+        }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .init("MLNOfflinePackProgressChanged")).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.refresh() }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .init("MLNOfflinePackError")).receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.error = "Загрузка карты прервана сетью. Можно продолжить после восстановления интернета."
@@ -83,6 +89,7 @@ final class OfflineMapManager: ObservableObject {
             suggestion = "Нет свежего GPS. Выберите регион из списка или повторите определение."; return
         }
         lastSuggestion = Date(); suggestion = "Определяем регион…"
+        suggestionAttempts += 1
         // This is a one-shot system reverse geocode, not an Apple basemap.
         geocoder.reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "ru_RU")) { [weak self] placemarks, _ in
             DispatchQueue.main.async {
@@ -90,10 +97,16 @@ final class OfflineMapManager: ObservableObject {
                 let placemark = placemarks?.first
                 let names = [placemark?.administrativeArea, placemark?.subAdministrativeArea].compactMap { $0 }
                 func normalized(_ s: String) -> String {
-                    s.lowercased().replacingOccurrences(of: "ё", with: "е").replacingOccurrences(of: "область", with: "").replacingOccurrences(of: "республика", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    s.lowercased().replacingOccurrences(of: "ё", with: "е")
+                        .replacingOccurrences(of: "область|обл\\.|республика|респ\\.", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 let containing = self.regions.filter { $0.bounds.contains(location.coordinate) }
-                let match = containing.first { region in names.contains { normalized(region.name) == normalized($0) } }
+                let candidates = containing.filter { region in names.contains {
+                    let name = normalized($0), candidate = normalized(region.name)
+                    return name.count >= 4 && (candidate == name || candidate.hasPrefix(name + " ") || name.hasPrefix(candidate + " "))
+                } }
+                let match = candidates.count == 1 ? candidates.first : nil
                 // A bounding box alone is not enough to disambiguate neighbours.
                 if let match {
                     self.suggestedRegionID = match.id; self.suggestion = "По GPS: \(match.name)"
@@ -139,6 +152,9 @@ final class OfflineMapManager: ObservableObject {
     func download(_ region: OfflineRegion, zoom: Int) {
         open()
         guard pack(for: region.id) == nil else { resume(region.id); return }
+        guard region.bounds.east - region.bounds.west < 180 else {
+            error = "Этот регион пересекает 180-й меридиан. Скачивание такой области пока не поддерживается."; return
+        }
         guard region.bounds.tileCount(maxZoom: zoom) <= 200_000 else {
             error = "Регион слишком большой для этой детализации. Выберите обзорную карту или уровень «Улицы»."; return
         }

@@ -94,6 +94,16 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertThrowsError(try parse("{\"elements\":[{\"type\":\"node\",\"id\":1,\"lat\":100,\"lon\":0,\"tags\":{\"amenity\":\"school\"}}]}"))
         XCTAssertThrowsError(try RestrictedPlacesParser.joinRings([[.init(lat: 0, lon: 0), .init(lat: 1, lon: 1)]]))
     }
+    func testSiteRelationUsesMemberGeometryWithoutInventingAPerimeter() throws {
+        let places = try parse("""
+        {"elements":[{"type":"relation","id":3,"tags":{"amenity":"school","type":"site"},"members":[
+        {"type":"node","role":"entrance","lat":0,"lon":0},
+        {"type":"way","role":"building","geometry":[{"lat":0,"lon":0},{"lat":0,"lon":0.001},{"lat":0.001,"lon":0.001},{"lat":0.001,"lon":0},{"lat":0,"lon":0}]}]}]}
+        """)
+        let place = try XCTUnwrap(places.first)
+        XCTAssertEqual(place.distance(from: location(0.0005, 0.0005)), 0)
+        XCTAssertGreaterThan(place.distance(from: location(0.005, 0.005)), 500)
+    }
     func testCategoriesAndSpecificServicePriority() {
         XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"УФСБ России"]), .security)
         XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"Федеральная служба безопасности"]), .security)

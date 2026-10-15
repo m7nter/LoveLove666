@@ -72,12 +72,16 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(territories.isHittable); territories.tap()
         let enabled = app.switches["settings.restrictedPlaces.enabled"]
         XCTAssertTrue(enabled.waitForExistence(timeout: 5))
-        if enabled.value as? String == "0" { enabled.tap() }
+        if enabled.value as? String == "0" { enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap() }
         if app.alerts.firstMatch.waitForExistence(timeout: 2) { app.alerts.buttons["Позже"].tap() }
         XCTAssertEqual(enabled.value as? String, "1")
-        XCTAssertTrue(app.staticTexts["До границы: 65 м"].firstMatch.exists)
         keepScreenshot("Restricted-places-settings")
-        enabled.tap()
+        let radius = app.staticTexts["До границы: 65 м"].firstMatch
+        for _ in 0..<4 { if radius.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(radius.exists)
+        keepScreenshot("Restricted-places-distances")
+        for _ in 0..<4 { if enabled.isHittable { break }; app.swipeDown() }
+        enabled.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
     }
     func testOfflineRegionCanBeChosenManuallyWithoutDownloading() {
         let app = launch()
@@ -92,7 +96,7 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(offline.isHittable); offline.tap()
         let search = app.textFields["offline.regionSearch"]
         for _ in 0..<4 { if search.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(search.isHittable); search.tap(); search.typeText("Московская")
+        XCTAssertTrue(search.isHittable); search.tap(); search.typeText("RU-MOS")
         let region = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline.region.'")).firstMatch
         XCTAssertTrue(region.waitForExistence(timeout: 5)); region.tap()
         app.swipeDown(); app.swipeDown()

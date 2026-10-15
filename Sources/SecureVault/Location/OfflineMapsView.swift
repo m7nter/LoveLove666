@@ -7,7 +7,7 @@ struct OfflineMapsView: View {
     @State private var zoom = 12
     @State private var deleteID: String?
     private var selected: OfflineRegion? { manager.regions.first { $0.id == selectedID } }
-    private var filtered: [OfflineRegion] { manager.regions.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) } }
+    private var filtered: [OfflineRegion] { manager.regions.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.iso.localizedCaseInsensitiveContains(search) } }
     var body: some View {
         List {
             Section("Ваш регион") {
