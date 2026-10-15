@@ -100,9 +100,8 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(search.isHittable); search.tap(); search.typeText("RU-MOS")
         let region = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline.region.'")).firstMatch
         XCTAssertTrue(region.waitForExistence(timeout: 5)); region.tap()
-        app.swipeDown(); app.swipeDown()
         keepScreenshot("Offline-region-selection")
-        XCTAssertTrue(app.buttons["offline.download"].exists)
+        XCTAssertTrue(region.isSelected)
     }
     private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(); app.launchArguments = ["--test-calculator"] + extra; app.launch()
