@@ -233,9 +233,15 @@ struct RestrictedPlacesSnapshot {
     let fetchedAt: Date
     let places: [RestrictedPlace]
     var offlineBounds: OfflineRegionBounds? = nil
+    var offlineCoverage: [OfflineRegionBounds]? = nil
     var index: RestrictedPlaceIndex? = nil
     func covers(_ location: CLLocation, settings: RestrictedPlaceSettings, now: Date) -> Bool {
         let age = now.timeIntervalSince(fetchedAt)
+        if let offlineCoverage {
+            return age >= 0 && age < 30 * 86400 && offlineCoverage.contains {
+                $0.contains(location.coordinate, margin: settings.maximumRadius + location.horizontalAccuracy)
+            }
+        }
         if let bounds = offlineBounds {
             return age >= 0 && age < 30 * 86400 && bounds.contains(location.coordinate, margin: settings.maximumRadius + location.horizontalAccuracy)
         }

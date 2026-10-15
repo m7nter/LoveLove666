@@ -27,6 +27,16 @@ final class OfflinePlacesTests: XCTestCase {
         XCTAssertFalse(bounds.contains(position(54.0001).coordinate, margin: 1000))
         XCTAssertTrue(bounds.expanded(by: 1500).contains(position(54).coordinate, margin: 1015))
     }
+    func testPartialOfflineDatasetNeverClaimsFailedTilesAreChecked() {
+        let successfulTile = OfflineRegionBounds(south: 54.5, west: 36.5, north: 55.5, east: 37.5)
+        let region = OfflineRegion(id: "partial-coverage", name: "Частичная база", iso: "", bounds: bounds)
+        let data = OfflinePlaceDataset(region: region, bounds: bounds, date: Date(), places: [],
+                                       coverage: [successfulTile], failedTileCount: 1)
+        var settings = RestrictedPlaceSettings(); settings.enabled = true
+        XCTAssertFalse(data.isComplete)
+        XCTAssertFalse(RestrictedPlacesPolicy.evaluate(location: position(55, 37), settings: settings, snapshot: data.snapshot).blocked)
+        XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: position(55.8, 37.8), settings: settings, snapshot: data.snapshot).blocked)
+    }
     func testIndexKeepsLargeContainingPolygonAndNearbyPoints() {
         let polygon = RestrictedPlace(id: "territory", kind: .kindergarten, name: nil, point: nil, lines: [],
             outerRings: [[.init(lat: 54, lon: 36), .init(lat: 54, lon: 38), .init(lat: 56, lon: 38), .init(lat: 56, lon: 36), .init(lat: 54, lon: 36)]], innerRings: [])

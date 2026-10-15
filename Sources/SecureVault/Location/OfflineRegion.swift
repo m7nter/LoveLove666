@@ -14,6 +14,11 @@ struct OfflineRegionBounds: Codable, Equatable {
         let dy = meters / 110_000, dx = meters / max(100, 110_000 * cos(center.latitude * .pi / 180))
         return .init(south: max(-85, south - dy), west: max(-180, west - dx), north: min(85, north + dy), east: min(180, east + dx))
     }
+    func inset(by meters: Double) -> Self {
+        let dy = meters / 110_000, dx = meters / max(100, 110_000 * cos(center.latitude * .pi / 180))
+        let next = Self(south: south + dy, west: west + dx, north: north - dy, east: east - dx)
+        return next.south < next.north && next.west < next.east ? next : self
+    }
     var overpass: String {
         [south, west, north, east].map { String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), $0) }.joined(separator: ",")
     }
@@ -49,10 +54,17 @@ struct OfflinePlaceDataset: Codable {
     let bounds: OfflineRegionBounds
     let date: Date
     let places: [RestrictedPlace]
+    /// Successful OSM query tiles. A partial download must never claim that
+    /// the whole region is verified; the camera may use only these covered
+    /// rectangles and will keep checking online elsewhere.
+    let coverage: [OfflineRegionBounds]? = nil
+    let failedTileCount: Int? = nil
     var isCurrent: Bool { Date().timeIntervalSince(date) >= 0 && Date().timeIntervalSince(date) < 30 * 86400 }
+    var isComplete: Bool { (failedTileCount ?? 0) == 0 && coverage == nil }
     var snapshot: RestrictedPlacesSnapshot {
         .init(center: CLLocation(latitude: bounds.center.latitude, longitude: bounds.center.longitude),
-              radius: 0, fetchedAt: date, places: places, offlineBounds: bounds)
+              radius: 0, fetchedAt: date, places: places, offlineBounds: bounds,
+              offlineCoverage: coverage)
     }
 }
 

@@ -46,6 +46,8 @@ final class OfflineMapManager: ObservableObject {
     private var placeEndpointIndex = 0
     private var placeRetryCount = 0
     private var placeResults: [String: RestrictedPlace] = [:]
+    private var placeSuccessfulBounds: [OfflineRegionBounds] = []
+    private var placeFailedTileCount = 0
     private let geocoder = CLGeocoder()
     private var lastSuggestion: Date = .distantPast
     private var initialized = false
@@ -55,7 +57,8 @@ final class OfflineMapManager: ObservableObject {
     private static let placeEndpoints = [
         URL(string: "https://overpass-api.de/api/interpreter")!,
         URL(string: "https://overpass.kumi.systems/api/interpreter")!,
-        URL(string: "https://overpass.private.coffee/api/interpreter")!
+        URL(string: "https://overpass.private.coffee/api/interpreter")!,
+        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!
     ]
 
     private struct PackContext: Codable { let region: OfflineRegion; let zoom: Int; let date: Date }
@@ -144,10 +147,11 @@ final class OfflineMapManager: ObservableObject {
             let progress = pack.progress
             let dataset = OfflinePlacesStore.shared.dataset(for: context.region.id)
             let mapReady = pack.state == .complete && progress.countOfTilesCompleted > 0
-            let ready = mapReady && dataset?.isCurrent == true
+            let ready = mapReady && dataset?.isCurrent == true && dataset?.isComplete == true
             let status: String
             if blockedPacks.contains(context.region.id) { status = "Достигнут лимит размера. Удалите и выберите меньшую детализацию." }
             else if ready { status = "Карта и зоны готовы · объекты \(dataset!.date.formatted(date: .numeric, time: .omitted))" }
+            else if mapReady, let dataset, dataset.isCurrent { status = "Карта готова; зоны загружены частично (пропущено ячеек: \(dataset.failedTileCount ?? 0)). Можно продолжить загрузку." }
             else if mapReady && dataset == nil { status = "Карта готова; объекты запретных зон ещё не загружены" }
             else if mapReady { status = "Карта готова; обновите объекты запретных зон (старше 30 дней)" }
             else if pack.state == .active { status = "Загружено \(progress.countOfResourcesCompleted) из \(progress.countOfResourcesExpected) ресурсов" }
@@ -192,13 +196,16 @@ final class OfflineMapManager: ObservableObject {
         if let pack = pack(for: id), let context = context(pack) {
             (MLNOfflineStorage.shared.packs ?? []).filter { $0 !== pack && $0.state == .active }.forEach { $0.suspend() }
             if pack.state != .complete || pack.progress.countOfTilesCompleted == 0 { pack.resume() }
-            if OfflinePlacesStore.shared.dataset(for: id)?.isCurrent != true { downloadPlaces(context.region) }
+            if let dataset = OfflinePlacesStore.shared.dataset(for: id) {
+                if dataset.isCurrent == false || dataset.isComplete == false { downloadPlaces(context.region) }
+            } else { downloadPlaces(context.region) }
         }
         refresh()
     }
     func pauseAll() {
         requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil
         placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
+        placeSuccessfulBounds = []; placeFailedTileCount = 0
         guard initialized else { return }
         MLNOfflineStorage.shared.packs?.filter { $0.state == .active }.forEach { $0.suspend() }
         refresh()
@@ -207,6 +214,7 @@ final class OfflineMapManager: ObservableObject {
         if downloadingPlacesID == id {
             requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil
             placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
+            placeSuccessfulBounds = []; placeFailedTileCount = 0
         }
         do { try OfflinePlacesStore.shared.remove(id) } catch { self.error = "Не удалось удалить объекты региона."; return }
         if let pack = pack(for: id) {
@@ -227,6 +235,8 @@ final class OfflineMapManager: ObservableObject {
         placeEndpointIndex = 0
         placeRetryCount = 0
         placeResults = [:]
+        placeSuccessfulBounds = []
+        placeFailedTileCount = 0
         requestGeneration = VaultGate.shared.generation
         downloadingPlacesID = region.id
         fetchNextPlaceTile()
@@ -255,7 +265,7 @@ final class OfflineMapManager: ObservableObject {
         let filters = ["[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]", "[building~\"^(school|kindergarten)$\"]",
                        "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
         let selections = filters.map { "nwr(\(bounds.overpass))\($0);" }.joined()
-        return "[out:json][timeout:90][maxsize:33554432];(\(selections));out body geom;"
+        return "[out:json][timeout:90][maxsize:33554432];(\(selections));out tags geom;"
     }
 
     private func fetchNextPlaceTile() {
@@ -269,8 +279,16 @@ final class OfflineMapManager: ObservableObject {
         let id = UUID(); requestID = id
         var r = URLRequest(url: Self.placeEndpoints[placeEndpointIndex])
         r.httpMethod = "POST"
-        r.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        r.httpBody = Self.placeQuery(for: bounds).data(using: .utf8)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        let query = Self.placeQuery(for: bounds)
+        if placeEndpointIndex == 0 {
+            r.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            r.httpBody = query.data(using: .utf8)
+        } else {
+            r.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            r.httpBody = "data=\(encoded)".data(using: .utf8)
+        }
         request = session.dataTask(with: r) { [weak self] data, response, error in
             let result: Result<[RestrictedPlace], Error> = Result {
                 guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
@@ -283,6 +301,10 @@ final class OfflineMapManager: ObservableObject {
                 switch result {
                 case .success(let places):
                     for place in places { self.placeResults[place.id] = place }
+                    // Keep a conservative interior for offline verification;
+                    // objects on a failed neighbouring tile must not be
+                    // treated as absent near a tile edge.
+                    self.placeSuccessfulBounds.append(bounds.inset(by: 250))
                     self.placeTileIndex += 1
                     self.placeEndpointIndex = 0
                     self.placeRetryCount = 0
@@ -297,10 +319,15 @@ final class OfflineMapManager: ObservableObject {
                         self.placeEndpointIndex = 0
                         self.fetchNextPlaceTile()
                     } else {
-                        self.requestID = nil; self.downloadingPlacesID = nil
-                        self.placeRegion = nil; self.placeTiles = []; self.placeTileIndex = 0
-                        self.placeEndpointIndex = 0; self.placeRetryCount = 0; self.placeResults = [:]
-                        self.error = "Не удалось получить объекты запретных зон с доступных OSM-серверов. Карта сохранена, зоны можно докачать кнопкой «Продолжить / обновить зоны» при стабильном интернете."
+                        // A single unavailable tile must not discard the
+                        // successful part of a large oblast. The partial
+                        // dataset records its covered rectangles and remains
+                        // fail-closed outside them.
+                        self.placeFailedTileCount += 1
+                        self.placeTileIndex += 1
+                        self.placeEndpointIndex = 0
+                        self.placeRetryCount = 0
+                        self.fetchNextPlaceTile()
                     }
                 }
             }
@@ -310,8 +337,19 @@ final class OfflineMapManager: ObservableObject {
 
     private func finishPlaceDownload() {
         guard let region = placeRegion, let generation = requestGeneration else { return }
-        let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: Array(placeResults.values))
+        guard !placeResults.isEmpty || !placeSuccessfulBounds.isEmpty else {
+            requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
+            placeSuccessfulBounds = []; placeFailedTileCount = 0; downloadingPlacesID = nil
+            error = "Не удалось получить объекты запретных зон. Карта сохранена; повторите загрузку при доступном интернете."
+            refresh()
+            return
+        }
+        let complete = placeFailedTileCount == 0
+        let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: Array(placeResults.values),
+                                          coverage: complete ? nil : placeSuccessfulBounds,
+                                          failedTileCount: complete ? nil : placeFailedTileCount)
         requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
+        placeSuccessfulBounds = []; placeFailedTileCount = 0
         OfflinePlacesStore.shared.install(dataset, generation: generation) { [weak self] error in
             self?.downloadingPlacesID = nil; self?.refresh()
             if error != nil { self?.error = "Не удалось сохранить объекты региона. Проверьте свободное место." }
