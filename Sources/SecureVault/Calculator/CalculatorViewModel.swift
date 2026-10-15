@@ -1,12 +1,24 @@
 import Foundation
 import Combine
 
+struct HistoryRecord: Identifiable, Codable, Equatable {
+    let id: UUID
+    let expression: String
+    let result: String
+    let date: Date
+    var text: String { "\(expression) = \(result)" }
+}
+
 final class CalculatorViewModel: ObservableObject {
     @Published var display = "0"
     @Published var expression = ""
     @Published var shouldUnlock = false
-    @Published var history: [String] = UserDefaults.standard.stringArray(forKey: "calculator.history") ?? [] {
-        didSet { UserDefaults.standard.set(history, forKey: "calculator.history") }
+    @Published var history: [HistoryRecord] = CalculatorViewModel.loadHistory() {
+        didSet {
+            if let data = try? JSONEncoder().encode(history) {
+                UserDefaults.standard.set(data, forKey: "calculator.history.v2")
+            }
+        }
     }
     @Published var radians = false
     @Published var second = false
@@ -184,7 +196,8 @@ final class CalculatorViewModel: ObservableObject {
                 repeated = (tokens[tokens.count - 2], rhs)
             }
             if tokens.count > 1 {
-                history.append("\(formula) = \(Self.format(result))")
+                history.append(HistoryRecord(id: UUID(), expression: formula,
+                                             result: Self.format(result), date: Date()))
                 if history.count > 100 { history.removeFirst() }
             }
             expression = formula
@@ -192,10 +205,25 @@ final class CalculatorViewModel: ObservableObject {
             finished = true; replaceInput = true
         } catch { showError(error) }
     }
-    func useHistory(_ entry: String) {
-        guard let result = entry.components(separatedBy: " = ").last,
+    func useHistory(_ entry: HistoryRecord) {
+        let result = entry.result
+        guard
               let value = Double(result.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: ".")) else { return }
         reset(); invalidatePIN(); setValue(value)
+    }
+
+    private static func loadHistory() -> [HistoryRecord] {
+        if let data = UserDefaults.standard.data(forKey: "calculator.history.v2"),
+           let records = try? JSONDecoder().decode([HistoryRecord].self, from: data) {
+            return records
+        }
+        let legacy = UserDefaults.standard.stringArray(forKey: "calculator.history") ?? []
+        return legacy.compactMap { value in
+            let parts = value.components(separatedBy: " = ")
+            guard parts.count >= 2 else { return nil }
+            return HistoryRecord(id: UUID(), expression: parts.dropLast().joined(separator: " = "),
+                                 result: parts.last!, date: Date())
+        }
     }
     private func readable(_ values: [String]) -> String {
         values.map { Double($0).map(Self.format) ?? ($0 == "root" ? "ʸ√" : $0) }.joined()

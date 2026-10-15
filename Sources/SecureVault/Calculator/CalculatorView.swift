@@ -9,6 +9,7 @@ struct CalculatorView: View {
     @State private var showHistory = false
     @State private var scientific = false
     @State private var converting = false
+    @State private var mathNotes = false
     @State private var selectingSource: Bool?
     private let buttons = [["⌫", "CLEAR", "%", "÷"], ["7", "8", "9", "×"],
                            ["4", "5", "6", "−"], ["1", "2", "3", "+"], ["+/−", "0", ",", "="]]
@@ -30,7 +31,11 @@ struct CalculatorView: View {
             VStack(spacing: 0) {
                 toolbar.frame(height: 48).padding(.horizontal, inset)
                 Spacer(minLength: 6)
-                if converting {
+                if mathNotes {
+                    MathNotesView(vm: vm)
+                        .padding(.horizontal, inset)
+                        .padding(.bottom, 12)
+                } else if converting {
                     conversionDisplay(size: min(58, width * 0.70))
                         .padding(.horizontal, inset + 3).padding(.bottom, 12)
                 } else {
@@ -38,15 +43,15 @@ struct CalculatorView: View {
                         .padding(.horizontal, inset).padding(.bottom, scientific ? 12 : 7)
                 }
                 VStack(spacing: gap) {
-                    if scientific { scienceGrid(width: geometry.size.width - inset * 2, height: keyHeight, gap: gap) }
-                    ForEach(buttons.indices, id: \.self) { row in
+                    if !mathNotes && scientific { scienceGrid(width: geometry.size.width - inset * 2, height: keyHeight, gap: gap) }
+                    if !mathNotes { ForEach(buttons.indices, id: \.self) { row in
                         HStack(spacing: gap) {
                             ForEach(buttons[row], id: \.self) { symbol in
                                 CalculatorButton(title: symbol == "CLEAR" ? vm.clearButtonTitle : symbol,
                                     size: width, height: keyHeight, isSelected: vm.activeOperator == symbol, action: vm.tap)
                             }
                         }
-                    }
+                    } }
                 }
                 .padding(.horizontal, inset).padding(.bottom, 28)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -72,7 +77,11 @@ struct CalculatorView: View {
         .onChange(of: vm.shouldUnlock) { value in
             if value { vm.shouldUnlock = false; onUnlock() }
         }
-        .onChange(of: converting) { value in vm.allowsVaultEntry = !value }
+        .onChange(of: converting) { value in
+            vm.allowsVaultEntry = !value
+            if value { mathNotes = false }
+        }
+        .onChange(of: scientific) { value in if value { mathNotes = false } }
         .sheet(isPresented: $showHistory) {
             HistoryView(history: $vm.history, onSelect: vm.useHistory)
         }
@@ -160,6 +169,9 @@ struct CalculatorView: View {
                     Label("Стандартный", systemImage: "plus.forwardslash.minus").tag(false)
                     Label("Научный", systemImage: "function").tag(true)
                 }
+                Button { mathNotes = true; scientific = false; converting = false } label: {
+                    Label("Математические заметки", systemImage: "function")
+                }
                 Divider()
                 Toggle(isOn: $converting) { Label("Конвертация", systemImage: "arrow.left.arrow.right") }
             } label: {
@@ -167,6 +179,32 @@ struct CalculatorView: View {
             }.buttonStyle(.plain).modifier(CalculatorTopSurface())
                 .accessibilityLabel("Режим калькулятора").accessibilityIdentifier("calculator.menu")
         }.foregroundStyle(.white)
+    }
+}
+
+private struct MathNotesView: View {
+    @ObservedObject var vm: CalculatorViewModel
+    @State private var note = ""
+    @State private var result = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Математические заметки").font(.headline)
+            TextField("Введите выражение", text: $note)
+                .textFieldStyle(.roundedBorder)
+                .keyboardType(.numbersAndPunctuation)
+            HStack {
+                Button("Решить") {
+                    let normalized = note.replacingOccurrences(of: ",", with: ".")
+                    if let number = Double(normalized) { result = CalculatorViewModel.format(number) }
+                    else { result = "Введите выражение в стандартном режиме" }
+                }.buttonStyle(.borderedProminent).tint(.orange)
+                Button("Очистить") { note = ""; result = "" }.buttonStyle(.bordered)
+            }
+            if !result.isEmpty { Text(result).font(.system(size: 28, weight: .medium)).frame(maxWidth: .infinity, alignment: .trailing) }
+            Text("Рукописный ввод и графики появятся в следующем обновлении.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+        .padding(16).background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 20))
     }
 }
 
@@ -423,8 +461,8 @@ struct CalculatorButton: View {
 }
 
 struct HistoryView: View {
-    @Binding var history: [String]
-    var onSelect: (String) -> Void
+    @Binding var history: [HistoryRecord]
+    var onSelect: (HistoryRecord) -> Void
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
@@ -434,12 +472,19 @@ struct HistoryView: View {
                     Text("История пуста")
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(history.indices.reversed(), id: \.self) { index in
-                        Button { onSelect(history[index]); dismiss() } label: {
-                            Text(history[index]).font(.system(size: 20)).foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                    ForEach(historySections, id: \.0) { section, records in
+                        Section(section) {
+                            ForEach(records.reversed()) { record in
+                                Button { onSelect(record); dismiss() } label: {
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text(record.expression).font(.system(size: 16)).foregroundStyle(.secondary)
+                                        Text(record.result).font(.system(size: 22, weight: .medium)).foregroundStyle(.white)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                                .contextMenu { Button("Скопировать") { UIPasteboard.general.string = record.text } }
+                            }
                         }
-                        .contextMenu { Button("Скопировать") { UIPasteboard.general.string = history[index] } }
                     }
                 }
             }
@@ -458,5 +503,19 @@ struct HistoryView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var historySections: [(String, [HistoryRecord])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: history) { record -> Date in
+            calendar.startOfDay(for: record.date)
+        }
+        return grouped.keys.sorted(by: >).map { day in
+            let title: String
+            if calendar.isDateInToday(day) { title = "Сегодня" }
+            else if calendar.isDateInYesterday(day) { title = "Вчера" }
+            else { title = day.formatted(.dateTime.day().month(.wide).year()) }
+            return (title, grouped[day] ?? [])
+        }
     }
 }
