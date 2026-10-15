@@ -472,9 +472,9 @@ struct HistoryView: View {
                     Text("История пуста")
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(historySections, id: \.0) { section, records in
-                        Section(section) {
-                            ForEach(records.reversed()) { record in
+                    ForEach(historySections.indices, id: \.self) { sectionIndex in
+                        Section(historySections[sectionIndex].0) {
+                            ForEach(historySections[sectionIndex].1.reversed()) { record in
                                 Button { onSelect(record); dismiss() } label: {
                                     VStack(alignment: .trailing, spacing: 4) {
                                         Text(record.expression).font(.system(size: 16)).foregroundStyle(.secondary)
