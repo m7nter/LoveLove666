@@ -46,6 +46,7 @@ struct PhotoEditingView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @State private var text = ""
     @State private var textSize: Double = 0.045
+    @State private var textBackground = false
     @State private var brushWidth: Double = 0.08
     @State private var showTemplates = false
     @State private var showText = false
@@ -66,7 +67,8 @@ struct PhotoEditingView: View {
             VStack(spacing: 8) {
                 ZoomAnnotationCanvas(image: image, shapes: $shapes,
                                      tool: tool, color: annotationColor, text: text,
-                                     brushWidth: CGFloat(brushWidth), textSize: CGFloat(textSize))
+                                     brushWidth: CGFloat(brushWidth), textSize: CGFloat(textSize),
+                                     textBackground: textBackground)
                     .overlay { if isSaving { ProgressView().tint(.orange) } }
                     .allowsHitTesting(!isSaving)
                 if tool == .blur {
@@ -76,7 +78,7 @@ struct PhotoEditingView: View {
                     }.padding(.horizontal)
                 }
                 Text(tool == .text
-                     ? "Коснитесь фото для надписи. Перетащите её пальцем, измените размер щипком."
+                     ? "Перетаскивание — одним пальцем. Масштаб и поворот — двумя пальцами."
                      : "Один палец — пометки, два пальца — масштаб и перемещение фото.")
                     .font(.caption).foregroundColor(.secondary).padding(.horizontal)
                 HStack(spacing: 8) {
@@ -139,7 +141,10 @@ struct PhotoEditingView: View {
                 Form {
                     Section("Текст на фото") { TextEditor(text: $text).frame(minHeight: 130) }
                     Section("Размер текста") { Slider(value: $textSize, in: 0.02...0.12) }
-                    Text("После закрытия коснитесь нужного места на снимке. Повторное касание добавляет ещё одну надпись; кнопка отмены удаляет последнюю.")
+                    Section("Оформление") {
+                        Toggle("Фон под текстом", isOn: $textBackground)
+                    }
+                    Text("После закрытия коснитесь места на снимке. Надпись можно двигать, масштабировать и поворачивать как в Telegram.")
                 }
                 .navigationTitle("Надпись")
                 .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Готово") { showText = false } } }

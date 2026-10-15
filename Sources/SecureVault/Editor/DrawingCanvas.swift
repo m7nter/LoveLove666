@@ -14,6 +14,8 @@ struct DrawnShape: Identifiable, Equatable {
     var points: [CGPoint] = []
     var width: CGFloat = 0.012
     var textSize: CGFloat = 0.045
+    var textRotation: CGFloat = 0
+    var textBackground: Bool = false
 }
 
 enum AnnotationRenderer {
@@ -70,15 +72,33 @@ enum AnnotationRenderer {
     }
 
     static func textBounds(_ shape: DrawnShape, size: CGSize) -> CGRect {
+        let frame = textFrame(shape, size: size)
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let corners = [
+            CGPoint(x: frame.minX, y: frame.minY), CGPoint(x: frame.maxX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.maxY), CGPoint(x: frame.minX, y: frame.maxY)
+        ].map { point in
+            let dx = point.x - center.x, dy = point.y - center.y
+            return CGPoint(x: center.x + dx * cos(shape.textRotation) - dy * sin(shape.textRotation),
+                           y: center.y + dx * sin(shape.textRotation) + dy * cos(shape.textRotation))
+        }
+        return CGRect(x: corners.map(\.x).min() ?? frame.minX,
+                      y: corners.map(\.y).min() ?? frame.minY,
+                      width: (corners.map(\.x).max() ?? frame.maxX) - (corners.map(\.x).min() ?? frame.minX),
+                      height: (corners.map(\.y).max() ?? frame.maxY) - (corners.map(\.y).min() ?? frame.minY))
+            .insetBy(dx: -8, dy: -8)
+    }
+
+    private static func textFrame(_ shape: DrawnShape, size: CGSize) -> CGRect {
         let origin = CGPoint(x: shape.start.x * size.width, y: shape.start.y * size.height)
-        let font = UIFont.systemFont(ofSize: size.width * shape.textSize, weight: .bold)
+        let font = UIFont.systemFont(ofSize: size.width * shape.textSize, weight: .semibold)
         let available = CGSize(width: max(1, size.width - origin.x), height: max(1, size.height - origin.y))
         let measured = (shape.text as NSString).boundingRect(
             with: available, options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font], context: nil)
-        return CGRect(origin: origin, size: CGSize(width: min(available.width, max(1, measured.width)),
-                                            height: min(available.height, max(1, measured.height))))
-            .insetBy(dx: -12, dy: -12)
+        let padding = max(8, font.lineHeight * 0.28)
+        return CGRect(origin: origin, size: CGSize(width: min(available.width, max(1, measured.width)) + padding * 2,
+                                            height: min(available.height, max(1, measured.height)) + padding * 2))
     }
 
     static func drawVectors(shapes: [DrawnShape], in ctx: CGContext, size: CGSize) {
@@ -109,15 +129,23 @@ enum AnnotationRenderer {
                 ctx.strokeEllipse(in: CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                                            width: abs(end.x - start.x), height: abs(end.y - start.y)))
             case .text:
+                let frame = textFrame(shape, size: size)
+                let center = CGPoint(x: frame.midX, y: frame.midY)
+                ctx.translateBy(x: center.x, y: center.y)
+                ctx.rotate(by: shape.textRotation)
+                let localFrame = CGRect(x: -frame.width / 2, y: -frame.height / 2,
+                                        width: frame.width, height: frame.height)
+                if shape.textBackground {
+                    ctx.setFillColor(UIColor.black.withAlphaComponent(0.72).cgColor)
+                    ctx.addPath(UIBezierPath(roundedRect: localFrame, cornerRadius: frame.height * 0.22).cgPath)
+                    ctx.fillPath()
+                }
                 let attributes: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: size.width * shape.textSize, weight: .bold),
-                    .foregroundColor: UIColor(shape.color),
-                    .strokeColor: UIColor.black, .strokeWidth: -2
+                    .font: UIFont.systemFont(ofSize: size.width * shape.textSize, weight: .semibold),
+                    .foregroundColor: UIColor(shape.color)
                 ]
                 (shape.text as NSString).draw(
-                    in: CGRect(x: start.x, y: start.y,
-                               width: max(1, size.width - start.x),
-                               height: max(1, size.height - start.y)),
+                    in: localFrame.insetBy(dx: frame.height * 0.22, dy: frame.height * 0.16),
                     withAttributes: attributes)
             case .blur:
                 break
@@ -296,6 +324,7 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
     var text: String
     var brushWidth: CGFloat
     var textSize: CGFloat
+    var textBackground: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -322,14 +351,21 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
 
         let draw = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.drawGesture(_:)))
         draw.maximumNumberOfTouches = 1
+        draw.cancelsTouchesInView = false
         draw.delegate = coordinator
         canvas.addGestureRecognizer(draw)
         let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.textGesture(_:)))
         tap.delegate = coordinator
+        // A drag on an existing inscription must win over the tap that selects
+        // or creates text. Empty-area taps still add a new inscription.
+        tap.require(toFail: draw)
         canvas.addGestureRecognizer(tap)
         let resizeText = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.resizeTextGesture(_:)))
         resizeText.delegate = coordinator
         canvas.addGestureRecognizer(resizeText)
+        let rotateText = UIRotationGestureRecognizer(target: coordinator, action: #selector(Coordinator.rotateTextGesture(_:)))
+        rotateText.delegate = coordinator
+        canvas.addGestureRecognizer(rotateText)
         scroll.pinchGestureRecognizer?.require(toFail: resizeText)
 
         coordinator.scroll = scroll
@@ -381,6 +417,13 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
         private var editingText: DrawnShape?
         private var pinchTextID: UUID?
         private var initialTextSize: CGFloat = 0.045
+        private var rotationTextID: UUID?
+        private var initialTextRotation: CGFloat = 0
+        private var transformBase: DrawnShape?
+        private var transformScale: CGFloat = 1
+        private var transformRotation: CGFloat = 0
+        private var pinchActive = false
+        private var rotationActive = false
         private var blurInProgress = false
         private var blurFailed = false
 
@@ -444,13 +487,24 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
                 return parent.tool == .text
             }
             if gestureRecognizer is UIPinchGestureRecognizer {
-                guard parent.tool == .text, selectedTextID != nil else { return false }
-                return hitText(at: gestureRecognizer.location(in: canvas))?.id == selectedTextID
+                // The midpoint between two fingers is often outside the text
+                // bounds. The selected inscription is the editing target.
+                return parent.tool == .text && selectedTextID != nil
+            }
+            if gestureRecognizer is UIRotationGestureRecognizer {
+                return parent.tool == .text && selectedTextID != nil
             }
             if parent.tool == .text {
                 return hitText(at: gestureRecognizer.location(in: canvas)) != nil
             }
             return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            let transforms = (gestureRecognizer is UIPinchGestureRecognizer || gestureRecognizer is UIRotationGestureRecognizer)
+                && (otherGestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIRotationGestureRecognizer)
+            return transforms
         }
 
         @objc func textGesture(_ recognizer: UITapGestureRecognizer) {
@@ -464,7 +518,8 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
             guard !value.isEmpty else { return }
             let p = point(recognizer)
             let added = DrawnShape(tool: .text, start: p, end: p, color: parent.color,
-                                   text: value, textSize: parent.textSize)
+                                   text: value, textSize: parent.textSize,
+                                   textBackground: parent.textBackground)
             selectedTextID = added.id
             parent.shapes.append(added)
             canvas.display(parent.shapes, selectedTextID: selectedTextID)
@@ -552,31 +607,59 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
                       let shape = canvas.shapes.first(where: { $0.id == id }) else { return }
                 pinchTextID = id
                 initialTextSize = shape.textSize
+                transformBase = shape
+                transformScale = 1
+                transformRotation = 0
+                pinchActive = true
                 editingText = shape
-                canvas.display(parent.shapes.filter { $0.id != id }, selectedTextID: nil)
-                canvas.displayDraft(shape, selectedTextID: id)
                 scroll?.pinchGestureRecognizer?.isEnabled = false
             case .changed, .ended:
-                guard let id = pinchTextID, var changed = editingText else { return }
-                changed.textSize = min(0.18, max(0.015, initialTextSize * recognizer.scale))
-                canvas.displayDraft(changed, selectedTextID: id)
-                if recognizer.state == .ended {
-                    if let index = parent.shapes.firstIndex(where: { $0.id == id }) {
-                        parent.shapes[index] = changed
-                    }
-                    pinchTextID = nil
-                    editingText = nil
-                    canvas.display(parent.shapes, selectedTextID: id)
-                    canvas.displayDraft(nil)
-                    scroll?.pinchGestureRecognizer?.isEnabled = true
-                }
+                guard pinchTextID != nil else { return }
+                transformScale = recognizer.scale
+                renderTextTransform()
+                if recognizer.state == .ended { pinchActive = false; finishTextTransformIfNeeded() }
             default:
-                pinchTextID = nil
-                editingText = nil
-                scroll?.pinchGestureRecognizer?.isEnabled = true
-                canvas.display(parent.shapes, selectedTextID: selectedTextID)
-                canvas.displayDraft(nil)
+                pinchActive = false; finishTextTransformIfNeeded()
             }
+        }
+
+        @objc func rotateTextGesture(_ recognizer: UIRotationGestureRecognizer) {
+            switch recognizer.state {
+            case .began:
+                guard let id = selectedTextID,
+                      let shape = canvas.shapes.first(where: { $0.id == id }) else { return }
+                rotationTextID = id
+                initialTextRotation = shape.textRotation
+                transformBase = transformBase ?? shape
+                rotationActive = true
+                editingText = shape
+                scroll?.pinchGestureRecognizer?.isEnabled = false
+            case .changed, .ended:
+                guard rotationTextID != nil else { return }
+                transformRotation = recognizer.rotation
+                renderTextTransform()
+                if recognizer.state == .ended { rotationActive = false; finishTextTransformIfNeeded() }
+            default:
+                rotationActive = false; finishTextTransformIfNeeded()
+            }
+        }
+
+        private func renderTextTransform() {
+            guard let id = selectedTextID, var changed = transformBase else { return }
+            changed.textSize = min(0.18, max(0.015, changed.textSize * transformScale))
+            changed.textRotation = (transformBase?.textRotation ?? initialTextRotation) + transformRotation
+            editingText = changed
+            canvas.display(parent.shapes.filter { $0.id != id }, selectedTextID: nil)
+            canvas.displayDraft(changed, selectedTextID: id)
+        }
+
+        private func finishTextTransformIfNeeded() {
+            guard !pinchActive, !rotationActive else { return }
+            guard let id = selectedTextID, let changed = editingText else { return }
+            if let index = parent.shapes.firstIndex(where: { $0.id == id }) { parent.shapes[index] = changed }
+            pinchTextID = nil; rotationTextID = nil; transformBase = nil; editingText = nil
+            canvas.display(parent.shapes, selectedTextID: id); canvas.displayDraft(nil)
+            scroll?.pinchGestureRecognizer?.isEnabled = true
         }
     }
 }
