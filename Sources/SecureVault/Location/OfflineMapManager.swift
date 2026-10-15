@@ -38,6 +38,12 @@ final class OfflineMapManager: ObservableObject {
     private var request: URLSessionDataTask?
     private var requestID: UUID?
     private var requestGeneration: Int?
+    // Place data is fetched in bounded tiles. A whole oblast can be too large
+    // for one Overpass response even though the MapLibre tile pack succeeds.
+    private var placeRegion: OfflineRegion?
+    private var placeTiles: [OfflineRegionBounds] = []
+    private var placeTileIndex = 0
+    private var placeResults: [String: RestrictedPlace] = [:]
     private let geocoder = CLGeocoder()
     private var lastSuggestion: Date = .distantPast
     private var initialized = false
@@ -185,12 +191,16 @@ final class OfflineMapManager: ObservableObject {
     }
     func pauseAll() {
         requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil
+        placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeResults = [:]
         guard initialized else { return }
         MLNOfflineStorage.shared.packs?.filter { $0.state == .active }.forEach { $0.suspend() }
         refresh()
     }
     func remove(_ id: String) {
-        if downloadingPlacesID == id { requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil }
+        if downloadingPlacesID == id {
+            requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil
+            placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeResults = [:]
+        }
         do { try OfflinePlacesStore.shared.remove(id) } catch { self.error = "Не удалось удалить объекты региона."; return }
         if let pack = pack(for: id) {
             pack.suspend()
@@ -204,39 +214,86 @@ final class OfflineMapManager: ObservableObject {
     func downloadPlaces(_ region: OfflineRegion) {
         guard downloadingPlacesID == nil else { return }
         let bounds = region.bounds.expanded(by: 1500)
+        placeRegion = region
+        placeTiles = Self.placeTiles(for: bounds)
+        placeTileIndex = 0
+        placeResults = [:]
+        requestGeneration = VaultGate.shared.generation
+        downloadingPlacesID = region.id
+        fetchNextPlaceTile()
+    }
+
+    private static func placeTiles(for bounds: OfflineRegionBounds) -> [OfflineRegionBounds] {
+        // Two-degree cells keep Overpass responses bounded while covering a
+        // large oblast with enough overlap for territories on cell borders.
+        let step = 2.0
+        var result: [OfflineRegionBounds] = []
+        var south = bounds.south
+        while south < bounds.north {
+            var west = bounds.west
+            while west < bounds.east {
+                result.append(.init(south: south, west: west,
+                                    north: min(bounds.north, south + step),
+                                    east: min(bounds.east, west + step)))
+                west += step
+            }
+            south += step
+        }
+        return result
+    }
+
+    private static func placeQuery(for bounds: OfflineRegionBounds) -> String {
         let filters = ["[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]", "[building~\"^(school|kindergarten)$\"]",
                        "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
-        let selections = filters.map { "nwr(\(bounds.overpass))\($0);nwr(pivot.enclosing)\($0);" }.joined()
-        let lat = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), bounds.center.latitude)
-        let lon = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), bounds.center.longitude)
-        let query = "[out:json][timeout:180][maxsize:134217728];is_in(\(lat),\(lon))->.enclosing;(\(selections));out body geom;"
+        let selections = filters.map { "nwr(\(bounds.overpass))\($0);" }.joined()
+        return "[out:json][timeout:90][maxsize:33554432];(\(selections));out body geom;"
+    }
+
+    private func fetchNextPlaceTile() {
+        guard let region = placeRegion,
+              placeTileIndex < placeTiles.count,
+              let generation = requestGeneration else {
+            finishPlaceDownload()
+            return
+        }
+        let bounds = placeTiles[placeTileIndex]
+        placeTileIndex += 1
+        let id = UUID(); requestID = id
         var r = URLRequest(url: URL(string: "https://overpass-api.de/api/interpreter")!)
-        r.httpMethod = "POST"; r.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type"); r.httpBody = query.data(using: .utf8)
-        let id = UUID(), generation = VaultGate.shared.generation
-        requestID = id; requestGeneration = generation; downloadingPlacesID = region.id
+        r.httpMethod = "POST"
+        r.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Self.placeQuery(for: bounds).data(using: .utf8)
         request = session.dataTask(with: r) { [weak self] data, response, error in
-            let result = Result { () -> OfflinePlaceDataset in
+            let result: Result<[RestrictedPlace], Error> = Result {
                 guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
-                      let data, data.count <= 134_217_728 else { throw error ?? URLError(.badServerResponse) }
-                let places = try RestrictedPlacesParser.parse(data)
-                return .init(region: region, bounds: bounds, date: Date(), places: places)
+                      let data, data.count <= 33_554_432 else { throw error ?? URLError(.badServerResponse) }
+                return try RestrictedPlacesParser.parse(data)
             }
             DispatchQueue.main.async {
-                guard let self, self.requestID == id else { return }
-                self.requestID = nil; self.request = nil; self.downloadingPlacesID = nil
-                do {
-                    let dataset = try result.get()
-                    self.downloadingPlacesID = region.id
-                    OfflinePlacesStore.shared.install(dataset, generation: generation) { [weak self] error in
-                        self?.downloadingPlacesID = nil; self?.refresh()
-                        if error != nil { self?.error = "Не удалось сохранить объекты региона. Проверьте свободное место." }
-                    }
-                } catch {
-                    self.error = "Не удалось полностью загрузить объекты запретных зон. Карта сохраняется, но контроль без данных не разрешит съёмку. Нажмите «Продолжить / обновить зоны» для повтора."
+                guard let self, self.requestID == id, self.placeRegion?.id == region.id else { return }
+                self.request = nil
+                switch result {
+                case .success(let places):
+                    for place in places { self.placeResults[place.id] = place }
+                    self.fetchNextPlaceTile()
+                case .failure:
+                    self.requestID = nil; self.downloadingPlacesID = nil
+                    self.placeRegion = nil; self.placeTiles = []; self.placeResults = [:]
+                    self.error = "Не удалось загрузить участок объектов OpenStreetMap. Карта сохранена, но для съёмки нужны данные зон. Нажмите «Продолжить / обновить зоны» при интернете."
                 }
             }
         }
         request?.resume()
+    }
+
+    private func finishPlaceDownload() {
+        guard let region = placeRegion, let generation = requestGeneration else { return }
+        let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: Array(placeResults.values))
+        requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeResults = [:]
+        OfflinePlacesStore.shared.install(dataset, generation: generation) { [weak self] error in
+            self?.downloadingPlacesID = nil; self?.refresh()
+            if error != nil { self?.error = "Не удалось сохранить объекты региона. Проверьте свободное место." }
+        }
     }
 
     /// Reset through the SDK, then preserve its now-empty SQLite directory while
