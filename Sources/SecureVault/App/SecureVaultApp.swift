@@ -24,6 +24,7 @@ struct SecureVaultApp: App {
             UserDefaults.standard.set(2, forKey: "vaultAccessFlowVersion")
         }
         #endif
+        prepareInstallIdentity()
         setupCrashLogging()
         PhotoExporter.cleanupTemporaryExports()
         let lifecycle = VaultLifecycle.shared
@@ -35,6 +36,29 @@ struct SecureVaultApp: App {
             }
         }
         lifecycle.resumePendingErase()
+    }
+
+    private func prepareInstallIdentity() {
+        let paths = VaultDirectories.application
+        let fileManager = FileManager.default
+        let marker = paths.support.appendingPathComponent(".install-marker")
+        guard !fileManager.fileExists(atPath: marker.path),
+              !fileManager.fileExists(atPath: paths.pendingMarker.path),
+              !fileManager.fileExists(atPath: paths.disabledMarker.path) else { return }
+
+        let hasExistingContainerData = [paths.documents, paths.support].contains { directory in
+            (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).isEmpty == false) ?? false
+        }
+        // A reinstall removes the app container but leaves this app's Keychain
+        // entries behind. Do not let those stale codes unlock an empty install.
+        // If an older app version already has files, this is an upgrade and the
+        // existing keychain material must be preserved.
+        if !hasExistingContainerData {
+            try? KeychainCodeStore.deleteAll()
+            try? CryptoManager.destroyKey()
+        }
+        try? fileManager.createDirectory(at: paths.support, withIntermediateDirectories: true)
+        try? Data("1".utf8).write(to: marker, options: [.atomic, .completeFileProtection])
     }
 
     var body: some Scene {
