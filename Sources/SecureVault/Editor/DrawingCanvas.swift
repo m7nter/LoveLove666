@@ -102,12 +102,15 @@ enum AnnotationRenderer {
     private static func textFrame(_ shape: DrawnShape, size: CGSize) -> CGRect {
         let origin = CGPoint(x: shape.start.x * size.width, y: shape.start.y * size.height)
         let font = UIFont.systemFont(ofSize: max(12, size.width * shape.textSize), weight: .regular)
+        // Keep the measurement width identical to the drawing inset. The old
+        // code measured the full frame and then inset it again while drawing,
+        // which clipped the last character ("привет" became "приве").
         let padding = max(10, font.lineHeight * 0.35)
         let available = CGSize(width: max(1, size.width - padding * 2), height: max(1, size.height - padding * 2))
         let measured = (shape.text as NSString).boundingRect(
             with: available, options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font], context: nil)
-        let width = min(size.width, max(font.lineHeight, ceil(measured.width) + padding * 2))
+        let width = min(size.width, max(font.lineHeight + padding * 2, ceil(measured.width) + padding * 2))
         let height = min(size.height, max(font.lineHeight + padding * 2, ceil(measured.height) + padding * 2))
         return CGRect(origin: origin, size: CGSize(width: width, height: height))
     }
@@ -160,9 +163,16 @@ enum AnnotationRenderer {
                     ctx.fillPath()
                 }
                 let attributes = textAttributes(for: shape, size: size)
+                // Draw into the same padded rectangle used for measurement and
+                // enable line layout explicitly. This prevents clipping both
+                // the final glyph and wrapped lines in long annotations.
+                let textPadding = max(10, UIFont.systemFont(ofSize: max(12, size.width * shape.textSize)).lineHeight * 0.35)
+                let textRect = localFrame.insetBy(dx: textPadding, dy: textPadding * 0.55)
                 (shape.text as NSString).draw(
-                    in: localFrame.insetBy(dx: frame.height * 0.22, dy: frame.height * 0.16),
-                    withAttributes: attributes)
+                    with: textRect,
+                    options: [.usesLineFragmentOrigin, .usesFontLeading, .usesDeviceMetrics],
+                    attributes: attributes,
+                    context: nil)
             case .blur:
                 break
             }
