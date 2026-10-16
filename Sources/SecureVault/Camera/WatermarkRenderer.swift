@@ -7,10 +7,7 @@ struct WatermarkRenderer {
                       heading: CLHeading?,
                       labelText: String? = nil) -> UIImage {
 
-        // Keep the same orientation path as the working LoveShop renderer.
-        // The pixel-aspect wrapper introduced an extra fit pass and could
-        // subtly stretch camera JPEGs with EXIF orientation metadata.
-        guard let normalized = image.normalized() else { return image }
+        guard let normalized = image.normalizedPreservingPixelAspect() else { return image }
         let size = normalized.size
         let renderer = UIGraphicsImageRenderer(size: size)
         let result = renderer.image { _ in
@@ -186,6 +183,45 @@ struct WatermarkRenderer {
 }
 
 extension UIImage {
+    func normalizedPreservingPixelAspect() -> UIImage? {
+        guard let cgImage else { return normalized() }
+        let scale = max(scale, 1)
+        let rawSize = CGSize(width: CGFloat(cgImage.width) / scale,
+                             height: CGFloat(cgImage.height) / scale)
+        let swapsAxes: Bool
+        switch imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            swapsAxes = true
+        default:
+            swapsAxes = false
+        }
+        let targetSize = swapsAxes
+            ? CGSize(width: rawSize.height, height: rawSize.width)
+            : rawSize
+        guard targetSize.width > 0, targetSize.height > 0 else { return nil }
+        if imageOrientation == .up, abs(size.width / max(size.height, 1) - targetSize.width / targetSize.height) < 0.001 {
+            return self
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            let sourceAspect = size.width / max(size.height, 1)
+            let containerAspect = targetSize.width / max(targetSize.height, 1)
+            let fit: CGRect
+            if sourceAspect > containerAspect {
+                let height = targetSize.width / sourceAspect
+                fit = CGRect(x: 0, y: (targetSize.height - height) / 2,
+                             width: targetSize.width, height: height)
+            } else {
+                let width = targetSize.height * sourceAspect
+                fit = CGRect(x: (targetSize.width - width) / 2, y: 0,
+                             width: width, height: targetSize.height)
+            }
+            draw(in: fit)
+        }
+    }
+
     func normalized() -> UIImage? {
         if imageOrientation == .up { return self }
         UIGraphicsBeginImageContextWithOptions(size, false, scale)

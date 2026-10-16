@@ -347,9 +347,10 @@ final class OfflineMapManager: ObservableObject {
     }
 
     private static func placeTiles(for bounds: OfflineRegionBounds) -> [OfflineRegionBounds] {
-        // One-degree cells keep geometry responses bounded. An OSM relation can
-        // be much larger than the point that falls inside the requested bbox.
-        let step = 1.0
+        // 1.5° cells reduce the number of Overpass requests while keeping each
+        // geometry response bounded. Failed cells are still retried on every
+        // configured server and checkpointed for resume.
+        let step = 1.5
         var result: [OfflineRegionBounds] = []
         var south = bounds.south
         while south < bounds.north {
@@ -390,14 +391,12 @@ final class OfflineMapManager: ObservableObject {
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         let query = Self.placeQuery(for: bounds)
-        if placeEndpointIndex == 0 {
-            r.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            r.httpBody = query.data(using: .utf8)
-        } else {
-            r.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-            r.httpBody = "data=\(encoded)".data(using: .utf8)
-        }
+        // All endpoints receive the same form-encoded request. The first
+        // endpoint previously used plain text, which is rejected by some
+        // mobile networks and inflated the visible failed-cell count.
+        r.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        r.httpBody = "data=\(encoded)".data(using: .utf8)
         request = session.dataTask(with: r) { [weak self] data, response, error in
             let result: Result<[RestrictedPlace], Error> = Result {
                 guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200,

@@ -103,8 +103,6 @@ final class RestrictedPlacesMonitor: ObservableObject {
     static func query(near location: CLLocation, radius: Double) -> String {
         let lat = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), location.coordinate.latitude)
         let lon = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), location.coordinate.longitude)
-        // is_in + pivot also finds a large enclosing territory whose fence lies
-        // outside the search circle. Full geometry is essential for edge distance.
         let filters = [
             "[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]",
             "[building~\"^(school|kindergarten)$\"]",
@@ -112,8 +110,13 @@ final class RestrictedPlacesMonitor: ObservableObject {
             "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"
         ]
         let around = "(around:\(Int(ceil(radius))),\(lat),\(lon))"
-        let selections = filters.map { "nwr\(around)\($0); nwr(pivot.enclosing)\($0);" }.joined(separator: "\n")
-        return "[out:json][timeout:25][maxsize:16777216];is_in(\(lat),\(lon))->.enclosing;(\(selections));out body geom;"
+        // Keep the live query to a bounded radius. The previous `pivot.enclosing`
+        // branch is rejected by several public Overpass instances and caused
+        // every online check to fail before the useful nearby objects arrived.
+        // Polygon geometry is still requested, so distance is measured to the
+        // actual fence rather than to a centre point.
+        let selections = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
+        return "[out:json][timeout:25][maxsize:16777216];(\(selections));out body geom;"
     }
 
     private static let overpassEndpoints = [
@@ -126,31 +129,18 @@ final class RestrictedPlacesMonitor: ObservableObject {
     private static func requestPlaces(session: URLSession, endpoint: URL, query: String) async throws -> [RestrictedPlace] {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = query.data(using: .utf8)
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        request.httpBody = "data=\(encoded)".data(using: .utf8)
         request.timeoutInterval = 23
 
-        var (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-
-        // Some mobile networks reject a plain-text POST while accepting the
-        // same query as a form-encoded POST. Retry the endpoint once before
-        // allowing another Overpass endpoint to win the race.
-        if [400, 405, 406, 415].contains(status) {
-            var fallback = URLRequest(url: endpoint)
-            fallback.httpMethod = "POST"
-            fallback.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            fallback.setValue("application/json", forHTTPHeaderField: "Accept")
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-            fallback.httpBody = "data=\(encoded)".data(using: .utf8)
-            fallback.timeoutInterval = 23
-            (data, response) = try await session.data(for: fallback)
-        }
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
               data.count <= 16_777_216 else {
-            throw URLError(.badServerResponse)
+            throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "Overpass HTTP \(status)"])
         }
         return try RestrictedPlacesParser.parse(data)
     }
