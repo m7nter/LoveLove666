@@ -13,6 +13,19 @@ struct RestrictedPlacesSettingsView: View {
             } footer: {
                 Text("Во время работы камеры проверяем ближайшие территории по OpenStreetMap. В запретной зоне съёмка блокируется, сверху отображается причина и расстояние до границы.")
             }
+            Section("Режим проверки") {
+                Picker("Источник данных", selection: $store.restrictedPlaces.checkMode) {
+                    ForEach(RestrictedPlacesCheckMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                Text(store.restrictedPlaces.checkMode.description)
+                    .font(.caption).foregroundColor(.secondary)
+                if store.restrictedPlaces.checkMode == .online {
+                    Text("При отсутствии ответа OSM съёмка блокируется до успешной проверки.")
+                        .font(.caption).foregroundColor(.orange)
+                }
+            }
             Section("Точность координат") {
                 Picker("Блокировать при погрешности от", selection: $store.restrictedPlaces.maximumAccuracy) {
                     ForEach([5, 10, 15, 20, 30, 50], id: \.self) { Text("\($0) м").tag(Double($0)) }

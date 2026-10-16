@@ -59,11 +59,54 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum RestrictedPlacesCheckMode: String, CaseIterable, Codable, Identifiable {
+    case automatic
+    case online
+    case offline
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .automatic: return "Автоматически"
+        case .online: return "Онлайн"
+        case .offline: return "Офлайн"
+        }
+    }
+    var description: String {
+        switch self {
+        case .automatic: return "Сначала используем OSM онлайн, а при отсутствии сети — готовую офлайн-базу."
+        case .online: return "Карту скачивать не нужно. Проверка выполняется через интернет перед съёмкой."
+        case .offline: return "Работает без сети, но требует полностью загруженную базу зон региона."
+        }
+    }
+}
+
 struct RestrictedPlaceSettings: Codable, Equatable {
     var enabled = false
     var maximumAccuracy: Double = 15
+    var checkMode: RestrictedPlacesCheckMode = .automatic
     var disabledKinds: Set<RestrictedPlaceKind> = []
     var radii: [String: Double] = [:]
+
+    init(enabled: Bool = false, maximumAccuracy: Double = 15,
+         checkMode: RestrictedPlacesCheckMode = .automatic,
+         disabledKinds: Set<RestrictedPlaceKind> = [], radii: [String: Double] = [:]) {
+        self.enabled = enabled
+        self.maximumAccuracy = maximumAccuracy
+        self.checkMode = checkMode
+        self.disabledKinds = disabledKinds
+        self.radii = radii
+    }
+
+    private enum CodingKeys: String, CodingKey { case enabled, maximumAccuracy, checkMode, disabledKinds, radii }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        maximumAccuracy = try container.decodeIfPresent(Double.self, forKey: .maximumAccuracy) ?? 15
+        checkMode = try container.decodeIfPresent(RestrictedPlacesCheckMode.self, forKey: .checkMode) ?? .automatic
+        disabledKinds = try container.decodeIfPresent(Set<RestrictedPlaceKind>.self, forKey: .disabledKinds) ?? []
+        radii = try container.decodeIfPresent([String: Double].self, forKey: .radii) ?? [:]
+    }
     func includes(_ kind: RestrictedPlaceKind) -> Bool { !disabledKinds.contains(kind) }
     func radius(for kind: RestrictedPlaceKind) -> Double { min(1000, max(1, radii[kind.rawValue] ?? kind.defaultRadius)) }
     var accuracyLimit: Double { min(50, max(3, maximumAccuracy)) }

@@ -7,16 +7,9 @@ struct WatermarkRenderer {
                       heading: CLHeading?,
                       labelText: String? = nil) -> UIImage {
 
-        // Normalize EXIF orientation before composing the watermark. The old
-        // LoveShop renderer did this first; drawing an oriented UIImage directly
-        // into a portrait canvas can make the camera frame appear stretched.
-        guard let normalized = image.normalized() else { return image }
+        guard let normalized = image.normalizedPreservingPixelAspect() else { return image }
         let size = normalized.size
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = normalized.scale
-        format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let renderer = UIGraphicsImageRenderer(size: size)
         let result = renderer.image { _ in
             normalized.draw(at: .zero)
 
@@ -190,6 +183,34 @@ struct WatermarkRenderer {
 }
 
 extension UIImage {
+    func normalizedPreservingPixelAspect() -> UIImage? {
+        guard let cgImage else { return normalized() }
+        let scale = max(scale, 1)
+        let rawSize = CGSize(width: CGFloat(cgImage.width) / scale,
+                             height: CGFloat(cgImage.height) / scale)
+        let swapsAxes: Bool
+        switch imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            swapsAxes = true
+        default:
+            swapsAxes = false
+        }
+        let targetSize = swapsAxes
+            ? CGSize(width: rawSize.height, height: rawSize.width)
+            : rawSize
+        guard targetSize.width > 0, targetSize.height > 0 else { return nil }
+        if imageOrientation == .up, abs(size.width / max(size.height, 1) - targetSize.width / targetSize.height) < 0.001 {
+            return self
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            let fit = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: .zero, size: targetSize))
+            draw(in: fit)
+        }
+    }
+
     func normalized() -> UIImage? {
         if imageOrientation == .up { return self }
         UIGraphicsBeginImageContextWithOptions(size, false, scale)

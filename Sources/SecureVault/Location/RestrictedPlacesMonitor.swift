@@ -75,12 +75,18 @@ final class RestrictedPlacesMonitor: ObservableObject {
             publish(.disabled); return
         }
         let location = LocationManager.shared.location.flatMap { $0.timestamp >= activationDate ? $0 : nil }
-        let offlineSnapshot = location.flatMap { OfflinePlacesStore.shared.snapshot(for: $0, settings: settings) }
-        let effectiveSnapshot = offlineSnapshot ?? snapshot
+        let offlineSnapshot = settings.checkMode == .online ? nil : location.flatMap {
+            OfflinePlacesStore.shared.snapshot(for: $0, settings: settings)
+        }
+        let effectiveSnapshot = offlineSnapshot ?? (settings.checkMode == .offline ? nil : snapshot)
+        if settings.checkMode == .offline, offlineSnapshot == nil {
+            publish(.init(blocked: true, message: "Офлайн-база запретных зон не загружена или не покрывает эту точку. Съёмка заблокирована."))
+            return
+        }
         var evaluated = RestrictedPlacesPolicy.evaluate(location: location, settings: settings, snapshot: effectiveSnapshot, unavailableReason: unavailableReason)
         if offlineSnapshot != nil && !evaluated.blocked { evaluated = .init(blocked: false, message: "Офлайн-проверка: запретных зон по сохранённым данным рядом не найдено") }
         publish(evaluated)
-        if offlineSnapshot != nil { return }
+        if offlineSnapshot != nil || settings.checkMode == .offline { return }
         guard RestrictedPlaceKind.allCases.contains(where: settings.includes),
               RestrictedPlacesPolicy.locationProblem(location, settings: settings, now: Date()) == nil,
               let location, requestTask == nil, Date() >= nextRequest else { return }

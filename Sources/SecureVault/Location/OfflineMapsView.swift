@@ -6,6 +6,7 @@ struct OfflineMapsView: View {
     @State private var search = ""
     @State private var zoom = 12
     @State private var deleteID: String?
+    @State private var showActivity = false
     private var selected: OfflineRegion? { manager.regions.first { $0.id == selectedID } }
     private var filtered: [OfflineRegion] { manager.regions.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.iso.localizedCaseInsensitiveContains(search) } }
     var body: some View {
@@ -44,10 +45,18 @@ struct OfflineMapsView: View {
                                progress.regionID == row.id {
                                 VStack(alignment: .leading, spacing: 3) {
                                     ProgressView(value: progress.fraction)
+                                    Text(progress.phase.isEmpty ? "Загружаем объекты запретных зон…" : progress.phase)
+                                        .font(.caption).foregroundColor(.secondary)
                                     Text("Зоны: \(progress.completedTiles) из \(progress.totalTiles) ячеек · найдено \(progress.placesCount) объектов" +
                                          (progress.failedTiles > 0 ? " · ошибок: \(progress.failedTiles)" : ""))
                                         .font(.caption)
                                         .foregroundColor(progress.failedTiles > 0 ? .orange : .secondary)
+                                    if !progress.serverLabel.isEmpty {
+                                        Text("\(progress.currentTileLabel) · \(progress.serverLabel)")
+                                            .font(.caption2).foregroundColor(.secondary)
+                                    }
+                                    Button("Что происходит") { showActivity = true }
+                                        .font(.caption).buttonStyle(.borderless)
                                 }
                             }
                             HStack {
@@ -79,6 +88,9 @@ struct OfflineMapsView: View {
         .navigationTitle("Офлайн-карты")
         .navigationBarTitleDisplayMode(.inline)
         .tint(.orange)
+        .sheet(isPresented: $showActivity) {
+            OfflinePlacesActivityView(manager: manager)
+        }
         .onAppear { manager.open(); if selectedID.isEmpty { selectedID = manager.suggestedRegionID ?? "" } }
         .onChange(of: manager.suggestedRegionID) { if selectedID.isEmpty, let id = $0 { selectedID = id } }
         .alert("Офлайн-карты", isPresented: Binding(get: { manager.error != nil }, set: { if !$0 { manager.error = nil } })) {
@@ -88,5 +100,66 @@ struct OfflineMapsView: View {
             Button("Удалить", role: .destructive) { if let id = deleteID { manager.remove(id) }; deleteID = nil }
             Button("Отмена", role: .cancel) { deleteID = nil }
         }
+    }
+}
+
+private struct OfflinePlacesActivityView: View {
+    @ObservedObject var manager: OfflineMapManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if let progress = manager.placesProgress {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Состояние загрузки").font(.headline)
+                                Text("\(progress.completedTiles) / \(progress.totalTiles) ячеек · \(progress.placesCount) объектов")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
+                                    ForEach(0..<max(progress.totalTiles, 1), id: \.self) { index in
+                                        let completed = index < progress.completedTiles
+                                        let current = index == progress.completedTiles
+                                        Circle()
+                                            .fill(completed ? Color.green : (current ? Color.orange : Color.white.opacity(0.16)))
+                                            .frame(height: 16)
+                                            .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
+                                    }
+                                }
+                                if progress.failedTiles > 0 {
+                                    Text("Ошибок ячеек: \(progress.failedTiles)")
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
+                            }
+                            .padding()
+                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                        }
+
+                        Text("Журнал").font(.headline)
+                        LazyVStack(alignment: .leading, spacing: 5) {
+                            ForEach(Array(manager.placesActivity.enumerated()), id: \.offset) { index, message in
+                                Text(message)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(message.contains("Ошибка") || message.contains("пропущена") ? .orange : .secondary)
+                                    .id(index)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding()
+                }
+                .onChange(of: manager.placesActivity.count) { _ in
+                    if let last = manager.placesActivity.indices.last { proxy.scrollTo(last, anchor: .bottom) }
+                }
+            }
+            .navigationTitle("Загрузка зон")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Готово") { dismiss() } }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .tint(.orange)
     }
 }

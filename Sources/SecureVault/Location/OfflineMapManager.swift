@@ -31,6 +31,9 @@ struct OfflinePlacesDownloadProgress: Equatable {
     let totalTiles: Int
     let placesCount: Int
     let failedTiles: Int
+    let currentTileLabel: String
+    let serverLabel: String
+    let phase: String
 
     var fraction: Double {
         guard totalTiles > 0 else { return 0 }
@@ -46,6 +49,7 @@ final class OfflineMapManager: ObservableObject {
     @Published private(set) var rows: [OfflineDownloadRow] = []
     @Published private(set) var downloadingPlacesID: String?
     @Published private(set) var placesProgress: OfflinePlacesDownloadProgress?
+    @Published private(set) var placesActivity: [String] = []
     @Published var error: String?
     private var subscriptions: Set<AnyCancellable> = []
     private var packsObservation: NSKeyValueObservation?
@@ -62,6 +66,9 @@ final class OfflineMapManager: ObservableObject {
     private var placeResults: [String: RestrictedPlace] = [:]
     private var placeSuccessfulBounds: [OfflineRegionBounds] = []
     private var placeFailedTileCount = 0
+    private var placeCurrentTileLabel = ""
+    private var placeCurrentServerLabel = ""
+    private var placePhase = ""
     private let geocoder = CLGeocoder()
     private var lastSuggestion: Date = .distantPast
     private var initialized = false
@@ -231,6 +238,7 @@ final class OfflineMapManager: ObservableObject {
         requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil; placesProgress = nil
         placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
         placeSuccessfulBounds = []; placeFailedTileCount = 0
+        placeCurrentTileLabel = ""; placeCurrentServerLabel = ""; placePhase = ""
         guard initialized else { return }
         MLNOfflineStorage.shared.packs?.filter { $0.state == .active }.forEach { $0.suspend() }
         refresh()
@@ -241,6 +249,7 @@ final class OfflineMapManager: ObservableObject {
             requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil; placesProgress = nil
             placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
             placeSuccessfulBounds = []; placeFailedTileCount = 0
+            placeCurrentTileLabel = ""; placeCurrentServerLabel = ""; placePhase = ""
         }
         do { try OfflinePlacesStore.shared.remove(id) } catch { self.error = "Не удалось удалить объекты региона."; return }
         if let pack = pack(for: id) {
@@ -263,12 +272,15 @@ final class OfflineMapManager: ObservableObject {
             placeResults = [:]
             placeSuccessfulBounds = []
             placeFailedTileCount = 0
+        placeCurrentTileLabel = ""; placeCurrentServerLabel = ""; placePhase = ""
+        placesActivity = []
         }
         placeEndpointIndex = 0
         placeRetryCount = 0
         requestGeneration = VaultGate.shared.generation
         downloadingPlacesID = region.id
         updatePlacesProgress()
+        appendPlacesActivity("Начата загрузка зон для \(region.name): \(placeTiles.count) ячеек")
         fetchNextPlaceTile()
     }
 
@@ -278,7 +290,16 @@ final class OfflineMapManager: ObservableObject {
                                completedTiles: placeTileIndex,
                                totalTiles: placeTiles.count,
                                placesCount: placeResults.count,
-                               failedTiles: placeFailedTileCount)
+                               failedTiles: placeFailedTileCount,
+                               currentTileLabel: placeCurrentTileLabel,
+                               serverLabel: placeCurrentServerLabel,
+                               phase: placePhase)
+    }
+
+    private func appendPlacesActivity(_ message: String) {
+        let stamp = Date().formatted(date: .omitted, time: .shortened)
+        placesActivity.append("\(stamp)  \(message)")
+        if placesActivity.count > 80 { placesActivity.removeFirst(placesActivity.count - 80) }
     }
 
     private var checkpointDirectory: URL {
@@ -360,6 +381,11 @@ final class OfflineMapManager: ObservableObject {
         }
         let bounds = placeTiles[placeTileIndex]
         let id = UUID(); requestID = id
+        placeCurrentTileLabel = "Ячейка \(placeTileIndex + 1)/\(placeTiles.count) · \(String(format: "%.2f", bounds.center.latitude)), \(String(format: "%.2f", bounds.center.longitude))"
+        placeCurrentServerLabel = Self.placeEndpoints[placeEndpointIndex].host ?? "OSM"
+        placePhase = "Запрашиваем объекты"
+        updatePlacesProgress()
+        appendPlacesActivity("\(placeCurrentTileLabel) → \(placeCurrentServerLabel)")
         var r = URLRequest(url: Self.placeEndpoints[placeEndpointIndex])
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -391,17 +417,23 @@ final class OfflineMapManager: ObservableObject {
                     self.placeTileIndex += 1
                     self.placeEndpointIndex = 0
                     self.placeRetryCount = 0
+                    self.placePhase = "Успешно"
                     self.updatePlacesProgress()
+                    self.appendPlacesActivity("Готово: найдено объектов всего \(self.placeResults.count)")
                     self.savePlacesCheckpoint()
                     self.fetchNextPlaceTile()
                 case .failure:
                     self.request = nil
                     if self.placeEndpointIndex + 1 < Self.placeEndpoints.count {
                         self.placeEndpointIndex += 1
+                        self.placePhase = "Повторяем через другой сервер"
+                        self.appendPlacesActivity("Ошибка ячейки, пробуем \(Self.placeEndpoints[self.placeEndpointIndex].host ?? "OSM")")
                         self.fetchNextPlaceTile()
                     } else if self.placeRetryCount < 1 {
                         self.placeRetryCount += 1
                         self.placeEndpointIndex = 0
+                        self.placePhase = "Повторная попытка"
+                        self.appendPlacesActivity("Все серверы не ответили, повторяем ячейку")
                         self.fetchNextPlaceTile()
                     } else {
                         // A single unavailable tile must not discard the
@@ -412,7 +444,9 @@ final class OfflineMapManager: ObservableObject {
                         self.placeTileIndex += 1
                         self.placeEndpointIndex = 0
                         self.placeRetryCount = 0
+                        self.placePhase = "Пропущено"
                         self.updatePlacesProgress()
+                        self.appendPlacesActivity("Ячейка пропущена после повторов")
                         self.savePlacesCheckpoint()
                         self.fetchNextPlaceTile()
                     }
@@ -427,6 +461,7 @@ final class OfflineMapManager: ObservableObject {
         guard !placeResults.isEmpty || !placeSuccessfulBounds.isEmpty else {
             requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
             placeSuccessfulBounds = []; placeFailedTileCount = 0; downloadingPlacesID = nil; placesProgress = nil
+            appendPlacesActivity("Не удалось получить ни одной ячейки")
             removePlacesCheckpoint(for: region.id)
             error = "Не удалось получить объекты запретных зон. Карта сохранена; повторите загрузку при доступном интернете."
             refresh()
@@ -440,6 +475,7 @@ final class OfflineMapManager: ObservableObject {
         placeSuccessfulBounds = []; placeFailedTileCount = 0
         OfflinePlacesStore.shared.install(dataset, generation: generation) { [weak self] error in
         if error == nil { self?.removePlacesCheckpoint(for: region.id) }
+        if error == nil { self?.appendPlacesActivity("Загрузка зон завершена: найдено \(dataset.places.count) объектов") }
         self?.downloadingPlacesID = nil; self?.placesProgress = nil; self?.refresh()
             if error != nil { self?.error = "Не удалось сохранить объекты региона. Проверьте свободное место." }
         }
