@@ -82,23 +82,42 @@ enum AnnotationRenderer {
             return CGPoint(x: center.x + dx * cos(shape.textRotation) - dy * sin(shape.textRotation),
                            y: center.y + dx * sin(shape.textRotation) + dy * cos(shape.textRotation))
         }
+        let hitPadding = max(14, frame.height * 0.2)
         return CGRect(x: corners.map(\.x).min() ?? frame.minX,
                       y: corners.map(\.y).min() ?? frame.minY,
                       width: (corners.map(\.x).max() ?? frame.maxX) - (corners.map(\.x).min() ?? frame.minX),
                       height: (corners.map(\.y).max() ?? frame.maxY) - (corners.map(\.y).min() ?? frame.minY))
-            .insetBy(dx: -8, dy: -8)
+            .insetBy(dx: -hitPadding, dy: -hitPadding)
+    }
+
+    static func fittingText(_ shape: DrawnShape, size: CGSize) -> DrawnShape {
+        var fitted = shape
+        let frame = textFrame(shape, size: size)
+        fitted.start.x = min(max(0, fitted.start.x), max(0, 1 - frame.width / max(1, size.width)))
+        fitted.start.y = min(max(0, fitted.start.y), max(0, 1 - frame.height / max(1, size.height)))
+        fitted.end = fitted.start
+        return fitted
     }
 
     private static func textFrame(_ shape: DrawnShape, size: CGSize) -> CGRect {
         let origin = CGPoint(x: shape.start.x * size.width, y: shape.start.y * size.height)
-        let font = UIFont.systemFont(ofSize: size.width * shape.textSize, weight: .semibold)
-        let available = CGSize(width: max(1, size.width - origin.x), height: max(1, size.height - origin.y))
+        let font = UIFont.systemFont(ofSize: max(12, size.width * shape.textSize), weight: .regular)
+        let padding = max(10, font.lineHeight * 0.35)
+        let available = CGSize(width: max(1, size.width - padding * 2), height: max(1, size.height - padding * 2))
         let measured = (shape.text as NSString).boundingRect(
             with: available, options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font], context: nil)
-        let padding = max(8, font.lineHeight * 0.28)
-        return CGRect(origin: origin, size: CGSize(width: min(available.width, max(1, measured.width)) + padding * 2,
-                                            height: min(available.height, max(1, measured.height)) + padding * 2))
+        let width = min(size.width, max(font.lineHeight, ceil(measured.width) + padding * 2))
+        let height = min(size.height, max(font.lineHeight + padding * 2, ceil(measured.height) + padding * 2))
+        return CGRect(origin: origin, size: CGSize(width: width, height: height))
+    }
+
+    private static func textAttributes(for shape: DrawnShape, size: CGSize) -> [NSAttributedString.Key: Any] {
+        let font = UIFont.systemFont(ofSize: max(12, size.width * shape.textSize), weight: .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byWordWrapping
+        return [.font: font, .foregroundColor: UIColor(shape.color), .paragraphStyle: paragraph]
     }
 
     static func drawVectors(shapes: [DrawnShape], in ctx: CGContext, size: CGSize) {
@@ -140,10 +159,7 @@ enum AnnotationRenderer {
                     ctx.addPath(UIBezierPath(roundedRect: localFrame, cornerRadius: frame.height * 0.22).cgPath)
                     ctx.fillPath()
                 }
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: size.width * shape.textSize, weight: .semibold),
-                    .foregroundColor: UIColor(shape.color)
-                ]
+                let attributes = textAttributes(for: shape, size: size)
                 (shape.text as NSString).draw(
                     in: localFrame.insetBy(dx: frame.height * 0.22, dy: frame.height * 0.16),
                     withAttributes: attributes)
@@ -517,9 +533,11 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
             let value = parent.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { return }
             let p = point(recognizer)
-            let added = DrawnShape(tool: .text, start: p, end: p, color: parent.color,
-                                   text: value, textSize: parent.textSize,
-                                   textBackground: parent.textBackground)
+            let added = AnnotationRenderer.fittingText(
+                DrawnShape(tool: .text, start: p, end: p, color: parent.color,
+                           text: value, textSize: parent.textSize,
+                           textBackground: parent.textBackground),
+                size: canvas.bounds.size)
             selectedTextID = added.id
             parent.shapes.append(added)
             canvas.display(parent.shapes, selectedTextID: selectedTextID)
@@ -582,6 +600,7 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
                     x: min(1, max(0, moveOrigin.x + translation.x / max(1, canvas.bounds.width))),
                     y: min(1, max(0, moveOrigin.y + translation.y / max(1, canvas.bounds.height))))
                 changed.end = changed.start
+                changed = AnnotationRenderer.fittingText(changed, size: canvas.bounds.size)
                 canvas.displayDraft(changed, selectedTextID: id)
                 if recognizer.state == .ended {
                     movingTextID = nil
@@ -648,6 +667,7 @@ struct ZoomAnnotationCanvas: UIViewRepresentable {
             guard let id = selectedTextID, var changed = transformBase else { return }
             changed.textSize = min(0.18, max(0.015, changed.textSize * transformScale))
             changed.textRotation = (transformBase?.textRotation ?? initialTextRotation) + transformRotation
+            changed = AnnotationRenderer.fittingText(changed, size: canvas.bounds.size)
             editingText = changed
             canvas.display(parent.shapes.filter { $0.id != id }, selectedTextID: nil)
             canvas.displayDraft(changed, selectedTextID: id)

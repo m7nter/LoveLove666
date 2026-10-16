@@ -39,7 +39,17 @@ struct OfflineMapsView: View {
                             Text(row.status).font(.caption).foregroundColor(row.ready ? .green : .secondary)
                             ProgressView(value: row.fraction)
                             Text(ByteCountFormatter.string(fromByteCount: Int64(row.bytes), countStyle: .file)).font(.caption)
-                            if manager.downloadingPlacesID == row.id { ProgressView("Загружаем объекты запретных зон…").font(.caption) }
+                            if manager.downloadingPlacesID == row.id,
+                               let progress = manager.placesProgress,
+                               progress.regionID == row.id {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    ProgressView(value: progress.fraction)
+                                    Text("Зоны: \(progress.completedTiles) из \(progress.totalTiles) ячеек · найдено \(progress.placesCount) объектов" +
+                                         (progress.failedTiles > 0 ? " · ошибок: \(progress.failedTiles)" : ""))
+                                        .font(.caption)
+                                        .foregroundColor(progress.failedTiles > 0 ? .orange : .secondary)
+                                }
+                            }
                             HStack {
                                 Button("Продолжить / обновить зоны") { manager.resume(row.id) }.buttonStyle(.borderless)
                                 Spacer()
