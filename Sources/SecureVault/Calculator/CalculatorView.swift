@@ -487,7 +487,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .background(.ultraThinMaterial.opacity(0.68))
+        .background(.ultraThinMaterial.opacity(0.42))
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
         .modifier(HistoryPresentationBackground())
@@ -512,7 +512,7 @@ struct HistoryView: View {
 private struct HistoryPresentationBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 16.4, *) {
-            content.presentationBackground(.ultraThinMaterial.opacity(0.68))
+            content.presentationBackground(.ultraThinMaterial.opacity(0.42))
         } else {
             content
         }
