@@ -167,7 +167,10 @@ final class RestrictedPlacesMonitor: ObservableObject {
               data.count <= 16_777_216 else {
             throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "Overpass HTTP \(status)"])
         }
-        return try RestrictedPlacesParser.parse(data)
+        let parsed = try RestrictedPlacesParser.parse(data)
+        var unique: [String: RestrictedPlace] = [:]
+        for place in parsed { unique[place.id] = place }
+        return Array(unique.values)
     }
 
     private static func requestPlacesFromAnyEndpoint(session: URLSession, query: String) async throws -> [RestrictedPlace] {
@@ -179,18 +182,25 @@ final class RestrictedPlacesMonitor: ObservableObject {
             }
 
             var lastError: Error?
+            var emptyResult: [RestrictedPlace]?
             var remaining = overpassEndpoints.count
             while remaining > 0 {
                 remaining -= 1
                 do {
                     if let result = try await group.next() {
-                        group.cancelAll()
-                        return result
+                        // Do not let one healthy but incomplete server's empty
+                        // response hide objects returned by another endpoint.
+                        if !result.isEmpty {
+                            group.cancelAll()
+                            return result
+                        }
+                        emptyResult = result
                     }
                 } catch {
                     lastError = error
                 }
             }
+            if let emptyResult { return emptyResult }
             throw lastError ?? URLError(.cannotLoadFromNetwork)
         }
     }
