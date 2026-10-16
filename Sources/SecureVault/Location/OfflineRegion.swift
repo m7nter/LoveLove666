@@ -57,8 +57,32 @@ struct OfflinePlaceDataset: Codable {
     /// Successful OSM query tiles. A partial download must never claim that
     /// the whole region is verified; the camera may use only these covered
     /// rectangles and will keep checking online elsewhere.
-    let coverage: [OfflineRegionBounds]? = nil
-    let failedTileCount: Int? = nil
+    let coverage: [OfflineRegionBounds]?
+    let failedTileCount: Int?
+
+    init(region: OfflineRegion, bounds: OfflineRegionBounds, date: Date, places: [RestrictedPlace],
+         coverage: [OfflineRegionBounds]? = nil, failedTileCount: Int? = nil) {
+        self.region = region
+        self.bounds = bounds
+        self.date = date
+        self.places = places
+        self.coverage = coverage
+        self.failedTileCount = failedTileCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case region, bounds, date, places, coverage, failedTileCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        region = try container.decode(OfflineRegion.self, forKey: .region)
+        bounds = try container.decode(OfflineRegionBounds.self, forKey: .bounds)
+        date = try container.decode(Date.self, forKey: .date)
+        places = try container.decode([RestrictedPlace].self, forKey: .places)
+        coverage = try container.decodeIfPresent([OfflineRegionBounds].self, forKey: .coverage)
+        failedTileCount = try container.decodeIfPresent(Int.self, forKey: .failedTileCount)
+    }
     var isCurrent: Bool { Date().timeIntervalSince(date) >= 0 && Date().timeIntervalSince(date) < 30 * 86400 }
     var isComplete: Bool { (failedTileCount ?? 0) == 0 && coverage == nil }
     var snapshot: RestrictedPlacesSnapshot {
