@@ -12,7 +12,13 @@ struct WatermarkRenderer {
         // subtly stretch camera JPEGs with EXIF orientation metadata.
         guard let normalized = image.normalized() else { return image }
         let size = normalized.size
-        let renderer = UIGraphicsImageRenderer(size: size)
+        // Preserve the source bitmap scale. UIGraphicsImageRenderer's default
+        // uses the current screen scale, which changed an 800×600 photo into
+        // 1200×900 on the simulator and made exported photos look stretched.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = normalized.scale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let result = renderer.image { _ in
             normalized.draw(at: .zero)
 
@@ -195,3 +201,4 @@ extension UIImage {
         return result
     }
 }
+
