@@ -112,13 +112,13 @@ final class RestrictedPlacesMonitor: ObservableObject {
             "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"
         ]
         let around = "(around:\(Int(ceil(radius))),\(lat),\(lon))"
-        // Keep the live query to a bounded radius. The previous `pivot.enclosing`
-        // branch is rejected by several public Overpass instances and caused
-        // every online check to fail before the useful nearby objects arrived.
-        // Polygon geometry is still requested, so distance is measured to the
-        // actual fence rather than to a centre point.
-        let selections = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
-        return "[out:json][timeout:25][maxsize:16777216];(\(selections));out body geom;"
+        // Search nearby objects and the valid OSM areas that contain the GPS
+        // point. `pivot` must be used with `way`/`rel`; the old `nwr(pivot)`
+        // form is rejected by several Overpass servers. This catches a large
+        // fenced territory even when its boundary is farther than the radius.
+        let nearby = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
+        let enclosing = filters.map { "way(pivot.enclosing)\($0); rel(pivot.enclosing)\($0);" }.joined(separator: "\n")
+        return "[out:json][timeout:25][maxsize:16777216];is_in(\(lat),\(lon))->.enclosing;(\(nearby)\n\(enclosing));out body geom;"
     }
 
     private static let overpassEndpoints = [
