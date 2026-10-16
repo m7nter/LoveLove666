@@ -75,6 +75,16 @@ final class OfflineMapManager: ObservableObject {
         URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!
     ]
 
+    private struct PlacesCheckpoint: Codable {
+        let generation: Int
+        let region: OfflineRegion
+        let tiles: [OfflineRegionBounds]
+        let nextTileIndex: Int
+        let places: [RestrictedPlace]
+        let successfulBounds: [OfflineRegionBounds]
+        let failedTileCount: Int
+    }
+
     private struct PackContext: Codable { let region: OfflineRegion; let zoom: Int; let date: Date }
     private init() {
         let config = URLSessionConfiguration.ephemeral
@@ -217,6 +227,7 @@ final class OfflineMapManager: ObservableObject {
         refresh()
     }
     func pauseAll() {
+        savePlacesCheckpoint()
         requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil; placesProgress = nil
         placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
         placeSuccessfulBounds = []; placeFailedTileCount = 0
@@ -226,6 +237,7 @@ final class OfflineMapManager: ObservableObject {
     }
     func remove(_ id: String) {
         if downloadingPlacesID == id {
+            removePlacesCheckpoint(for: id)
             requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil; placesProgress = nil
             placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
             placeSuccessfulBounds = []; placeFailedTileCount = 0
@@ -242,19 +254,21 @@ final class OfflineMapManager: ObservableObject {
 
     func downloadPlaces(_ region: OfflineRegion) {
         guard downloadingPlacesID == nil else { return }
-        let bounds = region.bounds.expanded(by: 1500)
         placeRegion = region
-        placeTiles = Self.placeTiles(for: bounds)
-        placeTileIndex = 0
+        let restored = restorePlacesCheckpoint(for: region)
+        if !restored {
+            let bounds = region.bounds.expanded(by: 1500)
+            placeTiles = Self.placeTiles(for: bounds)
+            placeTileIndex = 0
+            placeResults = [:]
+            placeSuccessfulBounds = []
+            placeFailedTileCount = 0
+        }
         placeEndpointIndex = 0
         placeRetryCount = 0
-        placeResults = [:]
-        placeSuccessfulBounds = []
-        placeFailedTileCount = 0
         requestGeneration = VaultGate.shared.generation
         downloadingPlacesID = region.id
-        placesProgress = .init(regionID: region.id, completedTiles: 0, totalTiles: placeTiles.count,
-                               placesCount: 0, failedTiles: 0)
+        updatePlacesProgress()
         fetchNextPlaceTile()
     }
 
@@ -265,6 +279,50 @@ final class OfflineMapManager: ObservableObject {
                                totalTiles: placeTiles.count,
                                placesCount: placeResults.count,
                                failedTiles: placeFailedTileCount)
+    }
+
+    private var checkpointDirectory: URL {
+        VaultDirectories.application.support.appendingPathComponent("OfflinePlaces", isDirectory: true)
+    }
+
+    private func checkpointURL(for id: String) -> URL {
+        checkpointDirectory.appendingPathComponent(".progress-\(id).json")
+    }
+
+    private func savePlacesCheckpoint() {
+        guard let region = placeRegion,
+              let generation = requestGeneration,
+              generation == VaultGate.shared.generation,
+              placeTileIndex < placeTiles.count else { return }
+        let checkpoint = PlacesCheckpoint(generation: generation, region: region, tiles: placeTiles,
+                                          nextTileIndex: placeTileIndex, places: Array(placeResults.values),
+                                          successfulBounds: placeSuccessfulBounds,
+                                          failedTileCount: placeFailedTileCount)
+        guard let data = try? JSONEncoder().encode(checkpoint) else { return }
+        try? VaultGate.shared.withAccess(generation: generation) {
+            try FileManager.default.createDirectory(at: checkpointDirectory, withIntermediateDirectories: true)
+            try data.write(to: checkpointURL(for: region.id), options: [.atomic, .completeFileProtection])
+        }
+    }
+
+    @discardableResult
+    private func restorePlacesCheckpoint(for region: OfflineRegion) -> Bool {
+        let url = checkpointURL(for: region.id)
+        guard let data = try? Data(contentsOf: url),
+              let checkpoint = try? JSONDecoder().decode(PlacesCheckpoint.self, from: data),
+              checkpoint.generation == VaultGate.shared.generation,
+              checkpoint.region.id == region.id,
+              checkpoint.nextTileIndex < checkpoint.tiles.count else { return false }
+        placeTiles = checkpoint.tiles
+        placeTileIndex = checkpoint.nextTileIndex
+        placeResults = Dictionary(uniqueKeysWithValues: checkpoint.places.map { ($0.id, $0) })
+        placeSuccessfulBounds = checkpoint.successfulBounds
+        placeFailedTileCount = checkpoint.failedTileCount
+        return true
+    }
+
+    private func removePlacesCheckpoint(for id: String) {
+        try? FileManager.default.removeItem(at: checkpointURL(for: id))
     }
 
     private static func placeTiles(for bounds: OfflineRegionBounds) -> [OfflineRegionBounds] {
@@ -334,6 +392,7 @@ final class OfflineMapManager: ObservableObject {
                     self.placeEndpointIndex = 0
                     self.placeRetryCount = 0
                     self.updatePlacesProgress()
+                    self.savePlacesCheckpoint()
                     self.fetchNextPlaceTile()
                 case .failure:
                     self.request = nil
@@ -354,6 +413,7 @@ final class OfflineMapManager: ObservableObject {
                         self.placeEndpointIndex = 0
                         self.placeRetryCount = 0
                         self.updatePlacesProgress()
+                        self.savePlacesCheckpoint()
                         self.fetchNextPlaceTile()
                     }
                 }
@@ -367,6 +427,7 @@ final class OfflineMapManager: ObservableObject {
         guard !placeResults.isEmpty || !placeSuccessfulBounds.isEmpty else {
             requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
             placeSuccessfulBounds = []; placeFailedTileCount = 0; downloadingPlacesID = nil; placesProgress = nil
+            removePlacesCheckpoint(for: region.id)
             error = "Не удалось получить объекты запретных зон. Карта сохранена; повторите загрузку при доступном интернете."
             refresh()
             return
@@ -378,6 +439,7 @@ final class OfflineMapManager: ObservableObject {
         requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
         placeSuccessfulBounds = []; placeFailedTileCount = 0
         OfflinePlacesStore.shared.install(dataset, generation: generation) { [weak self] error in
+        if error == nil { self?.removePlacesCheckpoint(for: region.id) }
         self?.downloadingPlacesID = nil; self?.placesProgress = nil; self?.refresh()
             if error != nil { self?.error = "Не удалось сохранить объекты региона. Проверьте свободное место." }
         }
