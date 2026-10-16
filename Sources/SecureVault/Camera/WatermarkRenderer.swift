@@ -206,7 +206,18 @@ extension UIImage {
         format.scale = scale
         format.opaque = true
         return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
-            let fit = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: .zero, size: targetSize))
+            let sourceAspect = size.width / max(size.height, 1)
+            let containerAspect = targetSize.width / max(targetSize.height, 1)
+            let fit: CGRect
+            if sourceAspect > containerAspect {
+                let height = targetSize.width / sourceAspect
+                fit = CGRect(x: 0, y: (targetSize.height - height) / 2,
+                             width: targetSize.width, height: height)
+            } else {
+                let width = targetSize.height * sourceAspect
+                fit = CGRect(x: (targetSize.width - width) / 2, y: 0,
+                             width: width, height: targetSize.height)
+            }
             draw(in: fit)
         }
     }
