@@ -199,6 +199,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let id = UUID(); requestID = id
         let query = Self.query(near: center, radius: radius)
         let session = self.session
+        unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
+        publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
         requestTask = Task { [weak self] in
             do {
                 let places = try await Self.requestPlacesFromAnyEndpoint(session: session, query: query)
