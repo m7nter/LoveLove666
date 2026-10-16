@@ -254,14 +254,38 @@ enum OSMPBFPlaceParser {
 
     private static func makePlace(_ relation: Relation, ways: [Int64: Way], nodes: [Int64: OSMCoordinate]) -> RestrictedPlace? {
         guard let kind = RestrictedPlaceKind.classify(relation.tags) else { return nil }
-        var outer: [[OSMCoordinate]] = [], inner: [[OSMCoordinate]] = [], lines: [[OSMCoordinate]] = []
+        var outerRefs: [[Int64]] = [], innerRefs: [[Int64]] = [], lines: [[OSMCoordinate]] = []
         for member in relation.members where member.type == 1 {
             guard let way = ways[member.ref] else { continue }
-            let geometry = way.refs.compactMap { nodes[$0] }; guard geometry.count >= 2 else { continue }
-            if geometry.first == geometry.last { (member.role == 1 ? inner : outer).append(geometry) }
-            else { lines.append(geometry) }
+            guard way.refs.count >= 2 else { continue }
+            if way.refs.first == way.refs.last { (member.role == 1 ? innerRefs : outerRefs).append(way.refs) }
+            else { lines.append(way.refs.compactMap { nodes[$0] }) }
         }
+        let outer = joinRings(outerRefs).map { $0.compactMap { nodes[$0] } }.filter { $0.count >= 4 }
+        let inner = joinRings(innerRefs).map { $0.compactMap { nodes[$0] } }.filter { $0.count >= 4 }
         guard !outer.isEmpty || !inner.isEmpty || !lines.isEmpty else { return nil }
         return RestrictedPlace(id: "relation/\(relation.id)", kind: kind, name: relation.tags["name:ru"] ?? relation.tags["name"], point: nil, lines: lines, outerRings: outer, innerRings: inner)
+    }
+
+    private static func joinRings(_ fragments: [[Int64]]) -> [[Int64]] {
+        var pending = fragments, result: [[Int64]] = []
+        while !pending.isEmpty {
+            var ring = pending.removeFirst()
+            var changed = true
+            while changed && ring.first != ring.last {
+                changed = false
+                for index in pending.indices.reversed() {
+                    var next = pending[index]
+                    if next.first == ring.last { ring.append(contentsOf: next.dropFirst()) }
+                    else if next.last == ring.last { next.reverse(); ring.append(contentsOf: next.dropFirst()) }
+                    else if next.last == ring.first { ring.insert(contentsOf: next.dropLast(), at: 0) }
+                    else if next.first == ring.first { next.reverse(); ring.insert(contentsOf: next.dropLast(), at: 0) }
+                    else { continue }
+                    pending.remove(at: index); changed = true; break
+                }
+            }
+            result.append(ring)
+        }
+        return result
     }
 }
