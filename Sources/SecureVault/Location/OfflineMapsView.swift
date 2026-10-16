@@ -106,6 +106,7 @@ struct OfflineMapsView: View {
 private struct OfflinePlacesActivityView: View {
     @ObservedObject var manager: OfflineMapManager
     @Environment(\.dismiss) private var dismiss
+    @State private var markerPulse = false
 
     var body: some View {
         NavigationStack {
@@ -124,6 +125,7 @@ private struct OfflinePlacesActivityView: View {
                                         Circle()
                                             .fill(completed ? Color.green : (current ? Color.orange : Color.white.opacity(0.16)))
                                             .frame(height: 16)
+                                            .scaleEffect(current && markerPulse ? 1.35 : 1)
                                             .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
                                     }
                                 }
@@ -161,5 +163,10 @@ private struct OfflinePlacesActivityView: View {
         }
         .preferredColorScheme(.dark)
         .tint(.orange)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                markerPulse = true
+            }
+        }
     }
 }
