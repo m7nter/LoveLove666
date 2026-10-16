@@ -258,7 +258,10 @@ enum OSMPBFPlaceParser {
         for member in relation.members where member.type == 1 {
             guard let way = ways[member.ref] else { continue }
             guard way.refs.count >= 2 else { continue }
-            if way.refs.first == way.refs.last { (member.role == 1 ? innerRefs : outerRefs).append(way.refs) }
+            if way.refs.first == way.refs.last {
+                if member.role == 1 { innerRefs.append(way.refs) }
+                else { outerRefs.append(way.refs) }
+            }
             else { lines.append(way.refs.compactMap { nodes[$0] }) }
         }
         let outer = joinRings(outerRefs).map { $0.compactMap { nodes[$0] } }.filter { $0.count >= 4 }
