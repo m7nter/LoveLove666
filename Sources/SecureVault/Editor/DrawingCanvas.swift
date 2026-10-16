@@ -206,7 +206,7 @@ private final class AnnotationCanvasView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         for imageView in [photoView, blurView, draftBlurView] {
-            imageView.contentMode = .scaleToFill
+            imageView.contentMode = .scaleAspectFit
             imageView.clipsToBounds = true
             addSubview(imageView)
         }

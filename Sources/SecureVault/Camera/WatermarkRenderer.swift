@@ -7,17 +7,18 @@ struct WatermarkRenderer {
                       heading: CLHeading?,
                       labelText: String? = nil) -> UIImage {
 
-        // UIImage.size is the displayed size and draw(in:) applies its EXIF
-        // orientation. Draw into the final bitmap once to preserve the camera's
-        // aspect ratio without keeping a second full-resolution copy in memory.
-        let size = image.size
+        // Normalize EXIF orientation before composing the watermark. The old
+        // LoveShop renderer did this first; drawing an oriented UIImage directly
+        // into a portrait canvas can make the camera frame appear stretched.
+        guard let normalized = image.normalized() else { return image }
+        let size = normalized.size
 
         let format = UIGraphicsImageRendererFormat()
-        format.scale = image.scale
+        format.scale = normalized.scale
         format.opaque = true
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let result = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
+            normalized.draw(at: .zero)
 
             let padding: CGFloat = size.width * 0.03
             let font = UIFont.monospacedSystemFont(
