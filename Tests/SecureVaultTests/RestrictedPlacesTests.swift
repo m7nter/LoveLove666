@@ -131,14 +131,12 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertFalse(store.restrictedPlaces.enabled)
         XCTAssertEqual(store.restrictedPlaces.radius(for: .police), 100)
     }
-    func testQueryRequestsNearbyAndEnclosingGeometry() {
+    func testQueryMatchesDesktopBoundedGeometryRequest() {
         let query = RestrictedPlacesMonitor.query(near: location(55.75, 37.62), radius: 1100)
         XCTAssertTrue(query.contains("around:1100,55.7500000,37.6200000"))
-        XCTAssertTrue(query.contains("is_in(55.7500000,37.6200000)->.enclosing"))
-        XCTAssertTrue(query.contains("way(pivot.enclosing)"))
-        XCTAssertTrue(query.contains("rel(pivot.enclosing)"))
-        XCTAssertFalse(query.contains("nwr(pivot.enclosing)"))
-        XCTAssertTrue(query.contains("out body geom"))
+        XCTAssertFalse(query.contains("is_in("))
+        XCTAssertFalse(query.contains("pivot.enclosing"))
+        XCTAssertTrue(query.contains("out tags geom"))
         XCTAssertFalse(query.contains("out center"))
     }
     func testClosestReasonsAreShownFirst() {

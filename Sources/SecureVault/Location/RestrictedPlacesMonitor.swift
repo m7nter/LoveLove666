@@ -112,17 +112,18 @@ final class RestrictedPlacesMonitor: ObservableObject {
             "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"
         ]
         let around = "(around:\(Int(ceil(radius))),\(lat),\(lon))"
-        // Search nearby objects and the valid OSM areas that contain the GPS
-        // point. `pivot` must be used with `way`/`rel`; the old `nwr(pivot)`
-        // form is rejected by several Overpass servers. This catches a large
-        // fenced territory even when its boundary is farther than the radius.
-        let nearby = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
-        let enclosing = filters.map { "way(pivot.enclosing)\($0); rel(pivot.enclosing)\($0);" }.joined(separator: "\n")
-        return "[out:json][timeout:25][maxsize:16777216];is_in(\(lat),\(lon))->.enclosing;(\(nearby)\n\(enclosing));out body geom;"
+        // Match the proven desktop Awesome Coord request: bounded nearby
+        // objects with full geometry. Keeping this query simple is critical on
+        // mobile Overpass servers; the previous is_in/pivot branch could make
+        // an otherwise healthy server reject the entire request.
+        let selections = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
+        return "[out:json][timeout:20][maxsize:16777216];(\(selections));out tags geom;"
     }
 
     private static let overpassEndpoints = [
         URL(string: "https://overpass-api.de/api/interpreter")!,
+        URL(string: "https://lz4.overpass-api.de/api/interpreter")!,
+        URL(string: "https://z.overpass-api.de/api/interpreter")!,
         URL(string: "https://overpass.kumi.systems/api/interpreter")!,
         URL(string: "https://overpass.private.coffee/api/interpreter")!,
         URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
@@ -137,7 +138,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         request.httpBody = "data=\(encoded)".data(using: .utf8)
-        request.timeoutInterval = 35
+        request.timeoutInterval = 23
 
         do {
             let (data, response) = try await session.data(for: request)
@@ -160,7 +161,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         var fallback = URLRequest(url: getURL)
         fallback.httpMethod = "GET"
         fallback.setValue("application/json", forHTTPHeaderField: "Accept")
-        fallback.timeoutInterval = 35
+        fallback.timeoutInterval = 23
         let (data, response) = try await session.data(for: fallback)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
