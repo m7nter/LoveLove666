@@ -66,16 +66,33 @@ jobs:
 
       - name: Run storage, editing and recovery tests
         run: |
-          xcodebuild test \
-            -project SecureVault.xcodeproj \
-            -scheme SecureVault \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,id=$TEST_SIMULATOR_ID" \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_IDENTITY="-" \
-            -parallel-testing-enabled NO \
-            -derivedDataPath "$GITHUB_WORKSPACE/test_build" \
-            -resultBundlePath "$GITHUB_WORKSPACE/TestResults.xcresult"
+          python3 - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          command = [
+              "xcodebuild", "test",
+              "-project", "SecureVault.xcodeproj",
+              "-scheme", "SecureVault",
+              "-configuration", "Debug",
+              "-destination", f"platform=iOS Simulator,id={os.environ['TEST_SIMULATOR_ID']}",
+              "CODE_SIGNING_ALLOWED=YES",
+              "CODE_SIGN_IDENTITY=-",
+              "-parallel-testing-enabled", "NO",
+              "-derivedDataPath", os.path.join(os.environ["GITHUB_WORKSPACE"], "test_build"),
+              "-resultBundlePath", os.path.join(os.environ["GITHUB_WORKSPACE"], "TestResults.xcresult"),
+          ]
+          process = subprocess.Popen(command)
+          try:
+              status = process.wait(timeout=600)
+          except subprocess.TimeoutExpired:
+              print("Simulator tests exceeded 10 minutes; continuing to Release build.", flush=True)
+              process.kill()
+              process.wait()
+              raise SystemExit(124)
+          raise SystemExit(status)
+          PY
 
       - name: Upload test results
         if: always()
