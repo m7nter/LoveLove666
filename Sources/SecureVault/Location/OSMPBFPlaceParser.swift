@@ -48,7 +48,7 @@ enum OSMPBFPlaceParser {
         }
     }
 
-    private struct Member { let type: Int; let role: Int; let ref: Int64 }
+    private struct Member { let type: Int; let role: String; let ref: Int64 }
     private struct Way { let id: Int64; let tags: [String: String]; let refs: [Int64] }
     private struct Relation { let id: Int64; let tags: [String: String]; let members: [Member] }
 
@@ -156,9 +156,13 @@ enum OSMPBFPlaceParser {
             default: try reader.skip(wire: field.wire)
             }
         }
-        var previous: Int64 = 0; var members: [Member] = []
+        var previous: Int64 = 0, roleID: Int64 = 0; var members: [Member] = []
         for index in 0..<min(refs.count, min(roles.count, types.count)) {
-            previous += signed(refs[index]); members.append(Member(type: Int(types[index]), role: roles[index] == 1 ? 1 : 0, ref: previous))
+            previous += signed(refs[index])
+            // roles_sid is a delta-coded int32 array in the OSM PBF schema.
+            roleID += Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: roles[index])))
+            let role = roleID >= 0 && roleID < Int64(table.count) ? table[Int(roleID)] : ""
+            members.append(Member(type: Int(types[index]), role: role, ref: previous))
         }
         return Relation(id: id, tags: tags(keys: keys, values: values, table: table), members: members)
     }
@@ -258,10 +262,10 @@ enum OSMPBFPlaceParser {
         for member in relation.members where member.type == 1 {
             guard let way = ways[member.ref] else { continue }
             guard way.refs.count >= 2 else { continue }
-            if way.refs.first == way.refs.last {
-                if member.role == 1 { innerRefs.append(way.refs) }
-                else { outerRefs.append(way.refs) }
-            }
+            // Multipolygon boundaries are often split into open way fragments.
+            // Join both closed and open fragments before converting to geometry.
+            if member.role == "inner" { innerRefs.append(way.refs) }
+            else if member.role == "outer" || way.refs.first == way.refs.last { outerRefs.append(way.refs) }
             else { lines.append(way.refs.compactMap { nodes[$0] }) }
         }
         let outer = joinRings(outerRefs).map { $0.compactMap { nodes[$0] } }.filter { $0.count >= 4 }
@@ -292,3 +296,4 @@ enum OSMPBFPlaceParser {
         return result
     }
 }
+

@@ -298,12 +298,12 @@ final class OfflineMapManager: ObservableObject {
         downloadingPlacesID = region.id; placeRegion = region
         placeTiles = [region.bounds]; placeTileIndex = 0; placeFailedTileCount = 0
         placeResults = [:]; placeSuccessfulBounds = []
-        placeCurrentTileLabel = "Региональная база PBF · (source.size)"
+        placeCurrentTileLabel = "Региональная база PBF · \(source.size)"
         placeCurrentServerLabel = url.host ?? "Geo2Day"
         placePhase = "Скачиваем базу OSM"
         placesActivity = []
         updatePlacesProgress()
-        appendPlacesActivity("Начата загрузка региональной базы (source.name) · (source.size)")
+        appendPlacesActivity("Начата загрузка региональной базы \(source.name) · \(source.size)")
         let directory = checkpointDirectory
         let partialURL = directory.appendingPathComponent(".\(region.id).pbf.part")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -574,3 +574,4 @@ final class OfflineMapManager: ObservableObject {
         }
     }
 }
+
