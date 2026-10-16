@@ -1,0 +1,500 @@
+{
+  "51490": {
+    "slug": "moscow_oblast",
+    "name": "Московская область",
+    "size": "188 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/moscow_oblast.pbf"
+  },
+  "71950": {
+    "slug": "ryazan_oblast",
+    "name": "Рязанская область",
+    "size": "28.8 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/ryazan_oblast.pbf"
+  },
+  "72169": {
+    "slug": "lipetsk_oblast",
+    "name": "Липецкая область",
+    "size": "31.0 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/lipetsk_oblast.pbf"
+  },
+  "72180": {
+    "slug": "tambov_oblast",
+    "name": "Тамбовская область",
+    "size": "31.7 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/tambov_oblast.pbf"
+  },
+  "72181": {
+    "slug": "voronezh_oblast",
+    "name": "Воронежская область",
+    "size": "50.7 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/voronezh_oblast.pbf"
+  },
+  "72182": {
+    "slug": "penza_oblast",
+    "name": "Пензенская область",
+    "size": "25.8 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/penza_oblast.pbf"
+  },
+  "72192": {
+    "slug": "ulyanovsk_oblast",
+    "name": "Ульяновская область",
+    "size": "32.0 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/ulyanovsk_oblast.pbf"
+  },
+  "72193": {
+    "slug": "saratov_oblast",
+    "name": "Саратовская область",
+    "size": "38.3 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/saratov_oblast.pbf"
+  },
+  "72194": {
+    "slug": "samara_oblast",
+    "name": "Самарская область",
+    "size": "46.2 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/samara_oblast.pbf"
+  },
+  "72195": {
+    "slug": "nizhny_novgorod_oblast",
+    "name": "Нижегородская область",
+    "size": "59.9 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/nizhny_novgorod_oblast.pbf"
+  },
+  "72196": {
+    "slug": "mordovia_republic",
+    "name": "Республика Мордовия",
+    "size": "23.7 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/mordovia_republic.pbf"
+  },
+  "72197": {
+    "slug": "vladimir_oblast",
+    "name": "Владимирская область",
+    "size": "45.1 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/vladimir_oblast.pbf"
+  },
+  "72223": {
+    "slug": "kursk_oblast",
+    "name": "Курская область",
+    "size": "40.3 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/kursk_oblast.pbf"
+  },
+  "72224": {
+    "slug": "oryol_oblast",
+    "name": "Орловская область",
+    "size": "16.3 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/oryol_oblast.pbf"
+  },
+  "72639": {
+    "slug": "crimea_republic",
+    "name": "Республика Крым",
+    "size": "48.5 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/crimea_republic.pbf"
+  },
+  "77665": {
+    "slug": "volgograd_oblast",
+    "name": "Волгоградская область",
+    "size": "54.2 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/volgograd_oblast.pbf"
+  },
+  "77669": {
+    "slug": "orenburg_oblast",
+    "name": "Оренбургская область",
+    "size": "38.1 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/orenburg_oblast.pbf"
+  },
+  "77677": {
+    "slug": "bashkortostan_republic",
+    "name": "Республика Башкортостан",
+    "size": "79.8 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/bashkortostan_republic.pbf"
+  },
+  "77687": {
+    "slug": "chelyabinsk_oblast",
+    "name": "Челябинская область",
+    "size": "67.7 МБ",
+    "url": "https://geo2day.com/russia/ural_federal_district/chelyabinsk_oblast.pbf"
+  },
+  "79374": {
+    "slug": "tatarstan_republic",
+    "name": "Республика Татарстан",
+    "size": "74.3 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/tatarstan_republic.pbf"
+  },
+  "79379": {
+    "slug": "sverdlovsk_oblast",
+    "name": "Свердловская область",
+    "size": "78.4 МБ",
+    "url": "https://geo2day.com/russia/ural_federal_district/sverdlovsk_oblast.pbf"
+  },
+  "81993": {
+    "slug": "tula_oblast",
+    "name": "Тульская область",
+    "size": "28.8 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/tula_oblast.pbf"
+  },
+  "81994": {
+    "slug": "yaroslavl_oblast",
+    "name": "Ярославская область",
+    "size": "33.8 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/yaroslavl_oblast.pbf"
+  },
+  "81995": {
+    "slug": "kaluga_oblast",
+    "name": "Калужская область",
+    "size": "38.9 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/kaluga_oblast.pbf"
+  },
+  "81996": {
+    "slug": "smolensk_oblast",
+    "name": "Смоленская область",
+    "size": "35.5 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/smolensk_oblast.pbf"
+  },
+  "81997": {
+    "slug": "bryansk_oblast",
+    "name": "Брянская область",
+    "size": "24.1 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/bryansk_oblast.pbf"
+  },
+  "83184": {
+    "slug": "belgorod_oblast",
+    "name": "Белгородская область",
+    "size": "31.7 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/belgorod_oblast.pbf"
+  },
+  "85606": {
+    "slug": "rostov_oblast",
+    "name": "Ростовская область",
+    "size": "71.8 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/rostov_oblast.pbf"
+  },
+  "85617": {
+    "slug": "ivanovo_oblast",
+    "name": "Ивановская область",
+    "size": "18.3 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/ivanovo_oblast.pbf"
+  },
+  "85963": {
+    "slug": "kostroma_oblast",
+    "name": "Костромская область",
+    "size": "19.3 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/kostroma_oblast.pbf"
+  },
+  "89331": {
+    "slug": "novgorod_oblast",
+    "name": "Новгородская область",
+    "size": "22.7 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/novgorod_oblast.pbf"
+  },
+  "102269": {
+    "slug": "moscow",
+    "name": "Москва",
+    "size": "76.2 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/moscow.pbf"
+  },
+  "103906": {
+    "slug": "kaliningrad_oblast",
+    "name": "Калининградская область",
+    "size": "26.4 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/kaliningrad_oblast.pbf"
+  },
+  "108081": {
+    "slug": "stavropol_krai",
+    "name": "Ставропольский край",
+    "size": "30.8 МБ",
+    "url": "https://geo2day.com/russia/north_caucasian_federal_district/stavropol_krai.pbf"
+  },
+  "108082": {
+    "slug": "krasnodar_krai",
+    "name": "Краснодарский край",
+    "size": "129.9 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/krasnodar_krai.pbf"
+  },
+  "108083": {
+    "slug": "kalmykia_republic",
+    "name": "Республика Калмыкия",
+    "size": "6.9 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/kalmykia_republic.pbf"
+  },
+  "109876": {
+    "slug": "dagestan_republic",
+    "name": "Республика Дагестан",
+    "size": "31.3 МБ",
+    "url": "https://geo2day.com/russia/north_caucasian_federal_district/dagestan_republic.pbf"
+  },
+  "109877": {
+    "slug": "chechen_republic",
+    "name": "Чеченская Республика",
+    "size": "12.0 МБ",
+    "url": "https://geo2day.com/russia/north_caucasian_federal_district/chechen_republic.pbf"
+  },
+  "110032": {
+    "slug": "north_ossetia_alania_republic",
+    "name": "Республика Северная Осетия — Алания",
+    "size": "6.9 МБ",
+    "url": "https://geo2day.com/russia/north_caucasian_federal_district/north_ossetia_alania_republic.pbf"
+  },
+  "112819": {
+    "slug": "astrakhan_oblast",
+    "name": "Астраханская область",
+    "size": "14.3 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/astrakhan_oblast.pbf"
+  },
+  "115100": {
+    "slug": "kirov_oblast",
+    "name": "Кировская область",
+    "size": "105.7 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/kirov_oblast.pbf"
+  },
+  "115106": {
+    "slug": "vologda_oblast",
+    "name": "Вологодская область",
+    "size": "42.4 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/vologda_oblast.pbf"
+  },
+  "115114": {
+    "slug": "mari_el_republic",
+    "name": "Республика Марий Эл",
+    "size": "21.7 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/mari_el_republic.pbf"
+  },
+  "115135": {
+    "slug": "perm_krai",
+    "name": "Пермский край",
+    "size": "74.4 МБ",
+    "url": "https://geo2day.com/russia/volga_federal_district/perm_krai.pbf"
+  },
+  "115136": {
+    "slug": "komi_republic",
+    "name": "Республика Коми",
+    "size": "48.8 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/komi_republic.pbf"
+  },
+  "140290": {
+    "slug": "kurgan_oblast",
+    "name": "Курганская область",
+    "size": "25.3 МБ",
+    "url": "https://geo2day.com/russia/ural_federal_district/kurgan_oblast.pbf"
+  },
+  "140291": {
+    "slug": "tyumen_oblast",
+    "name": "Тюменская область",
+    "size": "38.2 МБ",
+    "url": "https://geo2day.com/russia/ural_federal_district/tyumen_oblast.pbf"
+  },
+  "140292": {
+    "slug": "kostroma_oblast",
+    "name": "Костромская область",
+    "size": "19.3 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/kostroma_oblast.pbf"
+  },
+  "140294": {
+    "slug": "novosibirsk_oblast",
+    "name": "Новосибирская область",
+    "size": "57.7 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/novosibirsk_oblast.pbf"
+  },
+  "140295": {
+    "slug": "omsk_oblast",
+    "name": "Омская область",
+    "size": "56.1 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/omsk_oblast.pbf"
+  },
+  "140296": {
+    "slug": "khanty_mansi_autonomous_okrug",
+    "name": "Ханты-Мансийский автономный округ",
+    "size": "94.6 МБ",
+    "url": "https://geo2day.com/russia/ural_federal_district/khanty_mansi_autonomous_okrug.pbf"
+  },
+  "140337": {
+    "slug": "arkhangelsk_oblast",
+    "name": "Архангельская область",
+    "size": "66.8 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/arkhangelsk_oblast.pbf"
+  },
+  "144763": {
+    "slug": "kemerovo_oblast",
+    "name": "Кемеровская область — Кузбасс",
+    "size": "28.7 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/kemerovo_oblast.pbf"
+  },
+  "144764": {
+    "slug": "altai_krai",
+    "name": "Алтайский край",
+    "size": "99.7 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/altai_krai.pbf"
+  },
+  "145194": {
+    "slug": "altai_republic",
+    "name": "Республика Алтай",
+    "size": "55.9 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/altai_republic.pbf"
+  },
+  "145195": {
+    "slug": "tuva_republic",
+    "name": "Республика Тыва",
+    "size": "8.9 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/tuva_republic.pbf"
+  },
+  "145454": {
+    "slug": "irkutsk_oblast",
+    "name": "Иркутская область",
+    "size": "58.4 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/irkutsk_oblast.pbf"
+  },
+  "145729": {
+    "slug": "buryatia_republic",
+    "name": "Республика Бурятия",
+    "size": "18.5 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/buryatia_republic.pbf"
+  },
+  "145730": {
+    "slug": "zabaykalsky_krai",
+    "name": "Забайкальский край",
+    "size": "20.0 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/zabaykalsky_krai.pbf"
+  },
+  "147166": {
+    "slug": "amur_oblast",
+    "name": "Амурская область",
+    "size": "17.9 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/amur_oblast.pbf"
+  },
+  "147167": {
+    "slug": "jewish_autonomous_oblast",
+    "name": "Еврейская автономная область",
+    "size": "6.1 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/jewish_autonomous_oblast.pbf"
+  },
+  "151223": {
+    "slug": "khabarovsk_krai",
+    "name": "Хабаровский край",
+    "size": "66.7 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/khabarovsk_krai.pbf"
+  },
+  "151225": {
+    "slug": "primorsky_krai",
+    "name": "Приморский край",
+    "size": "42.8 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/primorsky_krai.pbf"
+  },
+  "151228": {
+    "slug": "magadan_oblast",
+    "name": "Магаданская область",
+    "size": "7.8 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/magadan_oblast.pbf"
+  },
+  "151231": {
+    "slug": "chukotka_autonomous_okrug",
+    "name": "Чукотский автономный округ",
+    "size": "50.5 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/chukotka_autonomous_okrug.pbf"
+  },
+  "151233": {
+    "slug": "kamchatka_krai",
+    "name": "Камчатский край",
+    "size": "27.5 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/kamchatka_krai.pbf"
+  },
+  "151234": {
+    "slug": "sakha_republic",
+    "name": "Республика Саха (Якутия)",
+    "size": "94.5 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/sakha_republic.pbf"
+  },
+  "155262": {
+    "slug": "pskov_oblast",
+    "name": "Псковская область",
+    "size": "43.1 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/pskov_oblast.pbf"
+  },
+  "176095": {
+    "slug": "leningrad_oblast",
+    "name": "Ленинградская область",
+    "size": "149.8 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/leningrad_oblast.pbf"
+  },
+  "190090": {
+    "slug": "krasnoyarsk_krai",
+    "name": "Красноярский край",
+    "size": "89.1 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/krasnoyarsk_krai.pbf"
+  },
+  "190911": {
+    "slug": "khakassia_republic",
+    "name": "Республика Хакасия",
+    "size": "10.3 МБ",
+    "url": "https://geo2day.com/russia/siberian_federal_district/khakassia_republic.pbf"
+  },
+  "191706": {
+    "slug": "nenets_autonomous_okrug",
+    "name": "Ненецкий автономный округ",
+    "size": "19.0 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/nenets_autonomous_okrug.pbf"
+  },
+  "253252": {
+    "slug": "ingushetia_republic",
+    "name": "Республика Ингушетия",
+    "size": "3.7 МБ",
+    "url": "https://geo2day.com/russia/north_caucasian_federal_district/ingushetia_republic.pbf"
+  },
+  "253256": {
+    "slug": "adygea_republic",
+    "name": "Республика Адыгея",
+    "size": "17.1 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/adygea_republic.pbf"
+  },
+  "274048": {
+    "slug": "nenets_autonomous_okrug",
+    "name": "Ненецкий автономный округ",
+    "size": "19.0 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/nenets_autonomous_okrug.pbf"
+  },
+  "337422": {
+    "slug": "saint_petersburg",
+    "name": "Санкт-Петербург",
+    "size": "51.8 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/saint_petersburg.pbf"
+  },
+  "393980": {
+    "slug": "karelia_republic",
+    "name": "Республика Карелия",
+    "size": "94.0 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/karelia_republic.pbf"
+  },
+  "394235": {
+    "slug": "sakhalin_oblast",
+    "name": "Сахалинская область",
+    "size": "34.4 МБ",
+    "url": "https://geo2day.com/russia/far_eastern_federal_district/sakhalin_oblast.pbf"
+  },
+  "1574364": {
+    "slug": "sevastopol",
+    "name": "Севастополь",
+    "size": "12.4 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/sevastopol.pbf"
+  },
+  "2095259": {
+    "slug": "tver_oblast",
+    "name": "Тверская область",
+    "size": "63.1 МБ",
+    "url": "https://geo2day.com/russia/central_federal_district/tver_oblast.pbf"
+  },
+  "2099216": {
+    "slug": "murmansk_oblast",
+    "name": "Мурманская область",
+    "size": "45.5 МБ",
+    "url": "https://geo2day.com/russia/northwestern_federal_district/murmansk_oblast.pbf"
+  },
+  "3788485": {
+    "slug": "sevastopol",
+    "name": "Севастополь",
+    "size": "12.4 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/sevastopol.pbf"
+  },
+  "3795586": {
+    "slug": "crimea_republic",
+    "name": "Республика Крым",
+    "size": "48.5 МБ",
+    "url": "https://geo2day.com/russia/southern_federal_district/crimea_republic.pbf"
+  }
+}

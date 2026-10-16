@@ -63,6 +63,8 @@ targets:
         buildPhase: resources
       - path: Resources/OfflineRegions.json
         buildPhase: resources
+      - path: Resources/OfflineZoneSources.json
+        buildPhase: resources
       - path: Resources/MapLibre-LICENSE.txt
         buildPhase: resources
     dependencies:

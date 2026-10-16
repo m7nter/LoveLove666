@@ -43,10 +43,25 @@ struct OfflineRegion: Codable, Identifiable, Equatable {
     let name: String
     let iso: String
     let bounds: OfflineRegionBounds
+    var pbfSource: OfflineZoneSource? { OfflineZoneSource.catalog[id] }
     static var bundled: [OfflineRegion] {
         guard let url = Bundle.main.url(forResource: "OfflineRegions", withExtension: "json"), let data = try? Data(contentsOf: url) else { return [] }
         return (try? JSONDecoder().decode([Self].self, from: data)) ?? []
     }
+}
+
+struct OfflineZoneSource: Codable {
+    let slug: String
+    let name: String
+    let size: String
+    let url: String
+
+    static let catalog: [String: OfflineZoneSource] = {
+        guard let url = Bundle.main.url(forResource: "OfflineZoneSources", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let values = try? JSONDecoder().decode([String: OfflineZoneSource].self, from: data) else { return [:] }
+        return values
+    }()
 }
 
 struct OfflinePlaceDataset: Codable {
