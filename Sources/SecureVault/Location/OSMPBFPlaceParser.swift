@@ -240,7 +240,8 @@ enum OSMPBFPlaceParser {
             return RestrictedPlace(id: "node/\(item.0)", kind: kind, name: item.2["name:ru"] ?? item.2["name"], point: item.1, lines: [], outerRings: [], innerRings: [])
         }
         for way in ways { if let place = makePlace(way, nodes: nodes) { places.append(place) } }
-        for relation in relations { if let place = makePlace(relation, ways: ways, nodes: nodes) { places.append(place) } }
+        let wayByID = Dictionary(uniqueKeysWithValues: ways.map { ($0.id, $0) })
+        for relation in relations { if let place = makePlace(relation, ways: wayByID, nodes: nodes) { places.append(place) } }
         return places
     }
 
@@ -251,12 +252,11 @@ enum OSMPBFPlaceParser {
         return RestrictedPlace(id: "way/\(way.id)", kind: kind, name: way.tags["name:ru"] ?? way.tags["name"], point: nil, lines: [geometry], outerRings: [], innerRings: [])
     }
 
-    private static func makePlace(_ relation: Relation, ways: [Way], nodes: [Int64: OSMCoordinate]) -> RestrictedPlace? {
+    private static func makePlace(_ relation: Relation, ways: [Int64: Way], nodes: [Int64: OSMCoordinate]) -> RestrictedPlace? {
         guard let kind = RestrictedPlaceKind.classify(relation.tags) else { return nil }
-        let byID = Dictionary(uniqueKeysWithValues: ways.map { ($0.id, $0) })
         var outer: [[OSMCoordinate]] = [], inner: [[OSMCoordinate]] = [], lines: [[OSMCoordinate]] = []
         for member in relation.members where member.type == 1 {
-            guard let way = byID[member.ref] else { continue }
+            guard let way = ways[member.ref] else { continue }
             let geometry = way.refs.compactMap { nodes[$0] }; guard geometry.count >= 2 else { continue }
             if geometry.first == geometry.last { (member.role == 1 ? inner : outer).append(geometry) }
             else { lines.append(geometry) }
