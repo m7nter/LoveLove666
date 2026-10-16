@@ -490,7 +490,7 @@ struct HistoryView: View {
         .background(.ultraThinMaterial.opacity(0.68))
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
-        .presentationBackground(.ultraThinMaterial.opacity(0.68))
+        .modifier(HistoryPresentationBackground())
         .presentationDragIndicator(.hidden)
     }
 
@@ -505,6 +505,16 @@ struct HistoryView: View {
             else if calendar.isDateInYesterday(day) { title = "Вчера" }
             else { title = day.formatted(.dateTime.day().month(.wide).year()) }
             return (title, grouped[day] ?? [])
+        }
+    }
+}
+
+private struct HistoryPresentationBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationBackground(.ultraThinMaterial.opacity(0.68))
+        } else {
+            content
         }
     }
 }
