@@ -487,9 +487,10 @@ struct HistoryView: View {
                 }
             }
         }
-        .background(.ultraThinMaterial)
+        .background(.ultraThinMaterial.opacity(0.68))
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
+        .presentationBackground(.ultraThinMaterial.opacity(0.68))
         .presentationDragIndicator(.hidden)
     }
 
