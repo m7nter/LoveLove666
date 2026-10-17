@@ -315,11 +315,14 @@ final class OfflineMapManager: ObservableObject {
         self.request = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             guard self.requestID == id, self.downloadingPlacesID == region.id else { return }
-            guard error == nil, let data, (response as? HTTPURLResponse)?.statusCode == 200 else {
+            let expectedBytes = response?.expectedContentLength ?? -1
+            let receivedBytes = data?.count ?? 0
+            guard error == nil, let data, (response as? HTTPURLResponse)?.statusCode == 200,
+                  expectedBytes <= 0 || Int64(receivedBytes) == expectedBytes else {
                 DispatchQueue.main.async {
                     self.request = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
-                    self.error = "Не удалось скачать региональную PBF-базу OSM. Проверьте сеть и повторите попытку."
-                    self.appendPlacesActivity("Ошибка скачивания PBF")
+                    self.error = "Региональная PBF-база загрузилась не полностью (получено (receivedBytes / 1_000_000) МБ из (max(0, Int(expectedBytes)) / 1_000_000) МБ). Повторите загрузку по Wi‑Fi."
+                    self.appendPlacesActivity("Неполная загрузка PBF: (receivedBytes) из (max(0, Int(expectedBytes))) байт")
                 }
                 return
             }
