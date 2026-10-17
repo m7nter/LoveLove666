@@ -8,6 +8,7 @@ import UIKit
 final class RestrictedPlacesMonitor: ObservableObject {
     static let shared = RestrictedPlacesMonitor()
     @Published private(set) var decision = CaptureZoneDecision.disabled
+    @Published private(set) var lastCheckSummary = "Проверка ещё не выполнялась"
     private var snapshot: RestrictedPlacesSnapshot?
     private var requestTask: Task<Void, Never>?
     private var requestID: UUID?
@@ -51,6 +52,13 @@ final class RestrictedPlacesMonitor: ObservableObject {
     func stop() {
         active = false; timer?.cancel(); timer = nil
         cancelRequest()
+    }
+
+    func retryNow() {
+        nextRequest = .distantPast
+        failureCount = 0
+        unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
+        if active { tick() }
     }
 
     /// Called again by CameraViewModel immediately before AVFoundation capture.
@@ -211,6 +219,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let query = Self.query(near: center, radius: radius)
         let session = self.session
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
+        lastCheckSummary = "Выполняем запрос к OpenStreetMap…"
         publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
         requestTask = Task { [weak self] in
             do {
@@ -220,6 +229,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
                     guard let self, self.active, self.requestID == id else { return }
                     self.requestTask = nil; self.requestID = nil
                     self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: places)
+                    self.lastCheckSummary = "Успешно: найдено объектов — \(places.count). Обновлено сейчас."
                     self.failureCount = 0; self.nextRequest = Date().addingTimeInterval(30)
                     self.unavailableReason = "Проверяем ближайшие территории…"
                     self.tick()
@@ -237,9 +247,11 @@ final class RestrictedPlacesMonitor: ObservableObject {
                         let detail = (error as NSError).localizedDescription
                         self.unavailableReason = "Сервер OpenStreetMap временно не ответил (\(detail)). Повторим автоматически."
                     }
+                    self.lastCheckSummary = "Ошибка проверки: \(self.unavailableReason)"
                     self.tick()
                 }
             }
         }
     }
 }
+

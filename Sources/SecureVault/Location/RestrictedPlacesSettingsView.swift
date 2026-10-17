@@ -3,6 +3,7 @@ import SwiftUI
 struct RestrictedPlacesSettingsView: View {
     @ObservedObject private var store = SettingsStore.shared
     @ObservedObject private var offline = OfflineMapManager.shared
+    @ObservedObject private var monitor = RestrictedPlacesMonitor.shared
     @State private var offerDownload = false
     @State private var showOffline = false
     var body: some View {
@@ -25,6 +26,14 @@ struct RestrictedPlacesSettingsView: View {
                     Text("При отсутствии ответа OSM съёмка блокируется до успешной проверки.")
                         .font(.caption).foregroundColor(.orange)
                 }
+            }
+            Section("Состояние OSM") {
+                Text(monitor.lastCheckSummary)
+                    .font(.caption).foregroundColor(.secondary)
+                Button("Проверить сейчас") { monitor.retryNow() }
+                    .disabled(!store.restrictedPlaces.enabled)
+                Text("Кнопка запускает повторную проверку при открытой камере. Пока проверка не завершилась, съёмка остаётся заблокирована.")
+                    .font(.caption).foregroundColor(.secondary)
             }
             Section("Точность координат") {
                 Picker("Блокировать при погрешности от", selection: $store.restrictedPlaces.maximumAccuracy) {
@@ -80,3 +89,4 @@ struct RestrictedPlacesSettingsView: View {
         } message: { Text(offline.suggestion + " Регион можно изменить в списке.") }
     }
 }
+
