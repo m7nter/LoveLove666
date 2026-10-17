@@ -12,17 +12,22 @@ struct WatermarkRenderer {
         // subtly stretch camera JPEGs with EXIF orientation metadata.
         guard let normalized = image.normalized() else { return image }
         let size = normalized.size
+        let padding = size.width * 0.03
+        let avatarImage = SettingsStore.shared.avatarImage
+        let hasLabel = !(labelText ?? "").isEmpty
+        let avatarSize: CGFloat = size.width * 0.22
+        let footerHeight = hasLabel || avatarImage != nil ? avatarSize + padding * 2 : 0
+        let outputSize = CGSize(width: size.width, height: size.height + footerHeight)
         // Preserve the source bitmap scale. UIGraphicsImageRenderer's default
         // uses the current screen scale, which changed an 800×600 photo into
         // 1200×900 on the simulator and made exported photos look stretched.
         let format = UIGraphicsImageRendererFormat()
         format.scale = normalized.scale
         format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let renderer = UIGraphicsImageRenderer(size: outputSize, format: format)
         let result = renderer.image { _ in
             normalized.draw(at: .zero)
 
-            let padding: CGFloat = size.width * 0.03
             let font = UIFont.monospacedSystemFont(
                 ofSize: max(size.width * 0.028, 16), weight: .semibold)
             let smallFont = UIFont.monospacedSystemFont(
@@ -118,18 +123,13 @@ struct WatermarkRenderer {
             }
 
             // ── НИЖНЯЯ ЧАСТЬ ──
-            let avatarImg = SettingsStore.shared.avatarImage
-            let hasLabel = !(labelText ?? "").isEmpty
-            let avatarSize: CGFloat = size.width * 0.22
-            var actualBottomBarH: CGFloat = 0
+            if hasLabel || avatarImage != nil {
+                // The footer is outside the photo. The photo keeps its full
+                // original rectangle and is never fitted around the label.
+                let bottomY = size.height
 
-            if hasLabel || avatarImg != nil {
-                let bottomBarH = avatarSize + padding * 2
-                actualBottomBarH = bottomBarH
-                let bottomY = size.height - bottomBarH
-
-                UIColor.black.withAlphaComponent(0.55).setFill()
-                UIRectFill(CGRect(x: 0, y: bottomY, width: size.width, height: bottomBarH))
+                UIColor.black.setFill()
+                UIRectFill(CGRect(x: 0, y: bottomY, width: size.width, height: footerHeight))
 
                 if let label = labelText, !label.isEmpty {
                     let labelFont = UIFont.systemFont(ofSize: max(size.width * 0.03, 18), weight: .bold)
@@ -140,13 +140,13 @@ struct WatermarkRenderer {
                     let labelRect = CGRect(
                         x: padding, y: bottomY + padding,
                         width: size.width - avatarSize - padding * 3,
-                        height: bottomBarH - padding * 2)
+                        height: footerHeight - padding * 2)
                     (label as NSString).draw(in: labelRect, withAttributes: labelAttrs)
                 }
 
-                if let avatar = avatarImg {
+                if let avatar = avatarImage {
                     let avatarX = size.width - avatarSize - padding
-                    let avatarY = size.height - avatarSize - padding
+                    let avatarY = bottomY + padding
                     let avatarRect = CGRect(x: avatarX, y: avatarY,
                                            width: avatarSize, height: avatarSize)
                     let ctx = UIGraphicsGetCurrentContext()!
@@ -161,7 +161,7 @@ struct WatermarkRenderer {
             // ── ПЕРЕКРЕСТИЕ НА ФОТО ──
             if SettingsStore.shared.crosshairOnPhoto {
                 let cx = size.width / 2
-                let cy = topBarH + (size.height - topBarH - actualBottomBarH) / 2
+                let cy = topBarH + (size.height - topBarH) / 2
                 let lineLen = size.width * 0.04
                 let lineW: CGFloat = max(size.width * 0.004, 2)
 

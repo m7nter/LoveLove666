@@ -404,7 +404,7 @@ struct CalculatorButton: View {
                     .font(.system(size: min(size * (title == "⌫" ? 0.40 : 0.43), (height ?? size) * 0.58), weight: .medium))
             } else {
                 Text(title)
-                    .font(.system(size: min(size * 0.43, (height ?? size) * 0.65), weight: .medium))
+                    .font(.system(size: min(size * 0.43, (height ?? size) * 0.65), weight: .regular))
                     .minimumScaleFactor(0.65).lineLimit(1)
             }
         }.foregroundColor(textColor)
@@ -475,7 +475,7 @@ struct HistoryView: View {
                                         if editing { Image(systemName: "minus.circle.fill").foregroundStyle(.red) }
                                         VStack(alignment: .leading, spacing: 5) {
                                             Text(record.expression).font(.system(size: 17)).foregroundStyle(.secondary).lineLimit(1)
-                                            Text(record.result).font(.system(size: 25, weight: .medium)).foregroundStyle(.white)
+                                            Text(record.result).font(.system(size: 25, weight: .regular)).foregroundStyle(.white)
                                         }
                                         Spacer()
                                     }.padding(.horizontal, 20).padding(.vertical, 17)
@@ -487,7 +487,7 @@ struct HistoryView: View {
                 }
             }
         }
-        .background(.ultraThinMaterial.opacity(0.42))
+        .background(.ultraThinMaterial.opacity(0.20))
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
         .modifier(HistoryPresentationBackground())
@@ -512,9 +512,10 @@ struct HistoryView: View {
 private struct HistoryPresentationBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 16.4, *) {
-            content.presentationBackground(.ultraThinMaterial.opacity(0.42))
+            content.presentationBackground(.ultraThinMaterial.opacity(0.20))
         } else {
             content
         }
     }
 }
+

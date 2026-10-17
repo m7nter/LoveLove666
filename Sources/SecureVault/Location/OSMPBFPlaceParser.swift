@@ -195,28 +195,47 @@ enum OSMPBFPlaceParser {
         }
     }
 
+    private static func decode(_ compressed: Data, algorithm: compression_algorithm, expectedSize: Int) throws -> Data {
+        guard !compressed.isEmpty else { throw ParseError.unsupportedCompression }
+        var capacity = max(expectedSize, compressed.count * 4, 4096)
+        // A regional PBF can contain blocks whose compression ratio is larger
+        // than the advertised raw_size. Grow the output instead of treating
+        // the first undersized decode as a corrupt database.
+        for _ in 0..<8 {
+            var output = Data(count: capacity)
+            let decoded = output.withUnsafeMutableBytes { destination in
+                compressed.withUnsafeBytes { source in
+                    guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
+                          let sourceBase = source.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+                    return compression_decode_buffer(destinationBase, capacity, sourceBase,
+                                                     compressed.count, nil, algorithm)
+                }
+            }
+            if decoded > 0 {
+                output.removeSubrange(decoded..<output.count)
+                return output
+            }
+            capacity *= 2
+        }
+        throw ParseError.unsupportedCompression
+    }
+
     private static func uncompressedBlob(_ data: Data) throws -> Data {
-        var reader = Reader(data: data), raw: Data?, zlib: Data?, rawSize = 0
+        var reader = Reader(data: data), raw: Data?, compressed: (Data, compression_algorithm)?, rawSize = 0
         while let field = try reader.field() {
             switch field.number {
             case 1: raw = try reader.bytes()
             case 2: rawSize = Int(try reader.varint())
-            case 3: zlib = try reader.bytes()
+            case 3: compressed = (try reader.bytes(), COMPRESSION_ZLIB)
+            case 4: compressed = (try reader.bytes(), COMPRESSION_LZMA)
+            case 6: compressed = (try reader.bytes(), COMPRESSION_LZ4)
+            case 7: compressed = (try reader.bytes(), COMPRESSION_ZSTD)
             default: try reader.skip(wire: field.wire)
             }
         }
         if let raw { return raw }
-        guard let zlib else { throw ParseError.unsupportedCompression }
-        let capacity = max(rawSize, zlib.count * 4)
-        var output = Data(count: capacity)
-        let decoded = output.withUnsafeMutableBytes { destination in
-            zlib.withUnsafeBytes { source in
-                compression_decode_buffer(destination.bindMemory(to: UInt8.self).baseAddress!, capacity, source.bindMemory(to: UInt8.self).baseAddress!, zlib.count, nil, COMPRESSION_ZLIB)
-            }
-        }
-        guard decoded > 0 else { throw ParseError.unsupportedCompression }
-        output.removeSubrange(decoded..<output.count)
-        return output
+        guard let compressed else { throw ParseError.unsupportedCompression }
+        return try decode(compressed.0, algorithm: compressed.1, expectedSize: rawSize)
     }
 
     private static func eachPrimitiveBlock(_ data: Data, _ body: (Data) throws -> Void, progress: ((Int, Int) -> Void)?) throws {

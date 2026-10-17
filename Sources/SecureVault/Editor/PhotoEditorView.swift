@@ -185,8 +185,11 @@ struct PhotoEditingView: View {
         let loc = location, hdg = heading
         let epoch = accessGeneration
         DispatchQueue.global(qos: .userInitiated).async {
-            let base = watermark ? WatermarkRenderer.apply(to: original, location: loc, heading: hdg, labelText: label) : original
-            let result = annotations.isEmpty ? base : AnnotationRenderer.render(image: base, shapes: annotations)
+            // Coordinates in the editor belong to the original photo. Apply
+            // marks before the footer is appended so adding a template never
+            // changes the photo's coordinate system or aspect ratio.
+            let annotated = annotations.isEmpty ? original : AnnotationRenderer.render(image: original, shapes: annotations)
+            let result = watermark ? WatermarkRenderer.apply(to: annotated, location: loc, heading: hdg, labelText: label) : annotated
             DispatchQueue.main.async {
                 guard (try? VaultGate.shared.withAccess(generation: epoch) { true }) == true else {
                     isSaving = false; saveError = true; return
@@ -242,3 +245,4 @@ struct LabelTemplateSheet: View {
         }
     }
 }
+
