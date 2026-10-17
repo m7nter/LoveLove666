@@ -321,8 +321,8 @@ final class OfflineMapManager: ObservableObject {
                   expectedBytes <= 0 || Int64(receivedBytes) == expectedBytes else {
                 DispatchQueue.main.async {
                     self.request = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
-                    self.error = "Региональная PBF-база загрузилась не полностью (получено (receivedBytes / 1_000_000) МБ из (max(0, Int(expectedBytes)) / 1_000_000) МБ). Повторите загрузку по Wi‑Fi."
-                    self.appendPlacesActivity("Неполная загрузка PBF: (receivedBytes) из (max(0, Int(expectedBytes))) байт")
+                    self.error = "Региональная PBF-база загрузилась не полностью (получено \(receivedBytes / 1_000_000) МБ из \(max(0, Int(expectedBytes)) / 1_000_000) МБ). Повторите загрузку по Wi‑Fi."
+                    self.appendPlacesActivity("Неполная загрузка PBF: \(receivedBytes) из \(max(0, Int(expectedBytes))) байт")
                 }
                 return
             }
