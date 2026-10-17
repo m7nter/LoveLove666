@@ -45,6 +45,10 @@ struct OfflineMapsView: View {
                                progress.regionID == row.id {
                                 VStack(alignment: .leading, spacing: 3) {
                                     ProgressView(value: progress.fraction)
+                                    if let bytesLabel = progress.bytesLabel {
+                                        Text("PBF: \(bytesLabel)")
+                                            .font(.caption2).foregroundColor(.secondary)
+                                    }
                                     Text(progress.phase.isEmpty ? "Загружаем объекты запретных зон…" : progress.phase)
                                         .font(.caption).foregroundColor(.secondary)
                                     Text("Зоны: \(progress.completedTiles) из \(progress.totalTiles) ячеек · найдено \(progress.placesCount) объектов" +
@@ -170,3 +174,4 @@ private struct OfflinePlacesActivityView: View {
         }
     }
 }
+

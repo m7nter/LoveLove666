@@ -34,10 +34,21 @@ struct OfflinePlacesDownloadProgress: Equatable {
     let currentTileLabel: String
     let serverLabel: String
     let phase: String
+    let bytesReceived: Int64
+    let expectedBytes: Int64
 
     var fraction: Double {
+        if expectedBytes > 0 { return min(1, Double(bytesReceived) / Double(expectedBytes)) }
         guard totalTiles > 0 else { return 0 }
         return min(1, Double(completedTiles) / Double(totalTiles))
+    }
+
+    var bytesLabel: String? {
+        guard bytesReceived > 0 || expectedBytes > 0 else { return nil }
+        let formatter = ByteCountFormatter(); formatter.countStyle = .file
+        let received = formatter.string(fromByteCount: bytesReceived)
+        guard expectedBytes > 0 else { return received }
+        return "\(received) из \(formatter.string(fromByteCount: expectedBytes))"
     }
 }
 
@@ -54,6 +65,7 @@ final class OfflineMapManager: ObservableObject {
     private var subscriptions: Set<AnyCancellable> = []
     private var packsObservation: NSKeyValueObservation?
     private var request: URLSessionDataTask?
+    private var pbfTask: Task<Void, Never>?
     private var requestID: UUID?
     private var requestGeneration: Int?
     // Place data is fetched in bounded tiles. A whole oblast can be too large
@@ -69,6 +81,8 @@ final class OfflineMapManager: ObservableObject {
     private var placeCurrentTileLabel = ""
     private var placeCurrentServerLabel = ""
     private var placePhase = ""
+    private var placeBytesReceived: Int64 = 0
+    private var placeExpectedBytes: Int64 = 0
     private let geocoder = CLGeocoder()
     private var lastSuggestion: Date = .distantPast
     private var initialized = false
@@ -239,10 +253,11 @@ final class OfflineMapManager: ObservableObject {
     }
     func pauseAll() {
         savePlacesCheckpoint()
-        requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil; placesProgress = nil
+        requestID = nil; request?.cancel(); request = nil; pbfTask?.cancel(); pbfTask = nil; downloadingPlacesID = nil; placesProgress = nil
         placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
         placeSuccessfulBounds = []; placeFailedTileCount = 0
         placeCurrentTileLabel = ""; placeCurrentServerLabel = ""; placePhase = ""
+        placeBytesReceived = 0; placeExpectedBytes = 0
         guard initialized else { return }
         MLNOfflineStorage.shared.packs?.filter { $0.state == .active }.forEach { $0.suspend() }
         refresh()
@@ -250,10 +265,11 @@ final class OfflineMapManager: ObservableObject {
     func remove(_ id: String) {
         if downloadingPlacesID == id {
             removePlacesCheckpoint(for: id)
-            requestID = nil; request?.cancel(); request = nil; downloadingPlacesID = nil; placesProgress = nil
+            requestID = nil; request?.cancel(); request = nil; pbfTask?.cancel(); pbfTask = nil; downloadingPlacesID = nil; placesProgress = nil
             placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
             placeSuccessfulBounds = []; placeFailedTileCount = 0
             placeCurrentTileLabel = ""; placeCurrentServerLabel = ""; placePhase = ""
+            placeBytesReceived = 0; placeExpectedBytes = 0
         }
         do { try OfflinePlacesStore.shared.remove(id) } catch { self.error = "Не удалось удалить объекты региона."; return }
         if let pack = pack(for: id) {
@@ -301,72 +317,115 @@ final class OfflineMapManager: ObservableObject {
         placeCurrentTileLabel = "Региональная база PBF · \(source.size)"
         placeCurrentServerLabel = url.host ?? "Geo2Day"
         placePhase = "Скачиваем базу OSM"
+        placeBytesReceived = 0; placeExpectedBytes = 0
         placesActivity = []
         updatePlacesProgress()
         appendPlacesActivity("Начата загрузка региональной базы \(source.name) · \(source.size)")
         let directory = checkpointDirectory
         let partialURL = directory.appendingPathComponent(".\(region.id).pbf.part")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let existingBytes: Int64 = ((try? FileManager.default.attributesOfItem(atPath: partialURL.path)[.size]) as? NSNumber)?.int64Value ?? 0
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         request.setValue("Calculator/1.2.0 (com.securevault.app)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 240
-        self.request = session.dataTask(with: request) { [weak self] data, response, error in
+        if existingBytes > 0 { request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range") }
+        pbfTask = Task { [weak self] in
             guard let self else { return }
-            guard self.requestID == id, self.downloadingPlacesID == region.id else { return }
-            let expectedBytes = response?.expectedContentLength ?? -1
-            let receivedBytes = data?.count ?? 0
-            guard error == nil, let data, (response as? HTTPURLResponse)?.statusCode == 200,
-                  expectedBytes <= 0 || Int64(receivedBytes) == expectedBytes else {
-                DispatchQueue.main.async {
-                    self.request = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
-                    self.error = "Региональная PBF-база загрузилась не полностью (получено \(receivedBytes / 1_000_000) МБ из \(max(0, Int(expectedBytes)) / 1_000_000) МБ). Повторите загрузку по Wi‑Fi."
-                    self.appendPlacesActivity("Неполная загрузка PBF: \(receivedBytes) из \(max(0, Int(expectedBytes))) байт")
-                }
-                return
-            }
             do {
-                try data.write(to: partialURL, options: [.atomic, .completeFileProtection])
-            } catch {
-                DispatchQueue.main.async { self.error = "Не удалось сохранить PBF-базу: \(error.localizedDescription)" }
-                return
-            }
-            DispatchQueue.main.async {
-                self.placePhase = "Индексируем объекты OSM"; self.updatePlacesProgress(); self.appendPlacesActivity("База скачана, строим локальный индекс")
-            }
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    let places = try OSMPBFPlaceParser.parse(url: partialURL) { completed, total in
-                        DispatchQueue.main.async {
+                let (bytes, response) = try await self.session.bytes(for: request)
+                guard let http = response as? HTTPURLResponse,
+                      http.statusCode == 200 || (http.statusCode == 206 && existingBytes > 0) else {
+                    throw URLError(.badServerResponse)
+                }
+                let append = http.statusCode == 206 && existingBytes > 0
+                let startBytes = append ? existingBytes : 0
+                if !append {
+                    FileManager.default.createFile(atPath: partialURL.path, contents: nil)
+                    try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: partialURL.path)
+                }
+                let handle = try FileHandle(forWritingTo: partialURL)
+                if append { try handle.seekToEnd() } else { try handle.truncate(atOffset: 0) }
+                defer { try? handle.close() }
+                let contentLength = response.expectedContentLength
+                let totalBytes = contentLength > 0 ? startBytes + contentLength : -1
+                var receivedBytes = startBytes
+                var buffer = Data(); buffer.reserveCapacity(256 * 1024)
+                await MainActor.run {
+                    self.placeBytesReceived = startBytes; self.placeExpectedBytes = totalBytes
+                    self.placePhase = append ? "Продолжаем загрузку базы OSM" : "Скачиваем базу OSM"
+                    self.updatePlacesProgress()
+                }
+                for try await byte in bytes {
+                    try Task.checkCancellation()
+                    buffer.append(byte)
+                    if buffer.count >= 256 * 1024 {
+                        try handle.write(contentsOf: buffer); receivedBytes += Int64(buffer.count); buffer.removeAll(keepingCapacity: true)
+                        let progressBytes = receivedBytes
+                        await MainActor.run {
                             guard self.requestID == id else { return }
-                            self.placeCurrentTileLabel = "Индекс OSM · \(Int(Double(completed) / Double(max(1, total)) * 100))%"
-                            self.updatePlacesProgress()
+                            self.placeBytesReceived = progressBytes; self.updatePlacesProgress()
                         }
                     }
-                    let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: places)
-                    DispatchQueue.main.async {
-                        guard self.requestID == id else { return }
-                        self.appendPlacesActivity("Индекс готов: найдено \(places.count) объектов")
-                        OfflinePlacesStore.shared.install(dataset, generation: generation) { error in
-                            try? FileManager.default.removeItem(at: partialURL)
-                            self.request = nil; self.requestID = nil; self.requestGeneration = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
-                            if error == nil { self.appendPlacesActivity("Региональная база установлена без пропущенных ячеек") }
-                            else { self.error = "Не удалось установить локальную OSM-базу." }
-                            self.refresh()
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        try? FileManager.default.removeItem(at: partialURL)
-                        self.request = nil; self.requestID = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
-                        self.error = "Не удалось разобрать региональную PBF-базу OSM: \(error.localizedDescription)"
-                        self.appendPlacesActivity("Ошибка индексации PBF")
-                    }
+                }
+                if !buffer.isEmpty { try handle.write(contentsOf: buffer); receivedBytes += Int64(buffer.count) }
+                guard totalBytes <= 0 || receivedBytes == totalBytes else {
+                    throw URLError(.networkConnectionLost, userInfo: [NSLocalizedDescriptionKey: "получено \(receivedBytes) из \(totalBytes) байт"])
+                }
+                try Task.checkCancellation()
+                await MainActor.run {
+                    guard self.requestID == id, self.downloadingPlacesID == region.id else { return }
+                    self.pbfTask = nil; self.placeBytesReceived = 0; self.placeExpectedBytes = 0
+                    self.placePhase = "Индексируем объекты OSM"; self.updatePlacesProgress(); self.appendPlacesActivity("База скачана, строим локальный индекс")
+                    self.indexPBF(partialURL: partialURL, region: region, generation: generation, requestID: id)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run {
+                    guard self.requestID == id else { return }
+                    self.pbfTask = nil; self.request = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
+                    self.error = "Не удалось продолжить загрузку региональной PBF-базы: \(error.localizedDescription)"
+                    self.appendPlacesActivity("Ошибка скачивания PBF; частичный файл сохранён для повтора")
                 }
             }
         }
-        self.request?.resume()
+    }
+
+    private func indexPBF(partialURL: URL, region: OfflineRegion, generation: Int, requestID id: UUID) {
+        let parseQueue = DispatchQueue.global(qos: .utility)
+        parseQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                let places = try OSMPBFPlaceParser.parse(url: partialURL) { completed, total in
+                    DispatchQueue.main.async {
+                        guard self.requestID == id else { return }
+                        self.placeCurrentTileLabel = "Индекс OSM · \(Int(Double(completed) / Double(max(1, total)) * 100))%"
+                        self.updatePlacesProgress()
+                    }
+                }
+                let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: places)
+                DispatchQueue.main.async {
+                    guard self.requestID == id else { return }
+                    self.appendPlacesActivity("Индекс готов: найдено \(places.count) объектов")
+                    OfflinePlacesStore.shared.install(dataset, generation: generation) { error in
+                        try? FileManager.default.removeItem(at: partialURL)
+                        self.request = nil; self.requestID = nil; self.requestGeneration = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
+                        if error == nil { self.appendPlacesActivity("Региональная база установлена без пропущенных ячеек") }
+                        else { self.error = "Не удалось установить локальную OSM-базу." }
+                        self.refresh()
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    try? FileManager.default.removeItem(at: partialURL)
+                    self.request = nil; self.requestID = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
+                    self.error = "Не удалось разобрать региональную PBF-базу OSM: \(error.localizedDescription)"
+                    self.appendPlacesActivity("Ошибка индексации PBF")
+                }
+            }
+        }
     }
 
     private func updatePlacesProgress() {
@@ -378,7 +437,9 @@ final class OfflineMapManager: ObservableObject {
                                failedTiles: placeFailedTileCount,
                                currentTileLabel: placeCurrentTileLabel,
                                serverLabel: placeCurrentServerLabel,
-                               phase: placePhase)
+                               phase: placePhase,
+                               bytesReceived: placeBytesReceived,
+                               expectedBytes: placeExpectedBytes)
     }
 
     private func appendPlacesActivity(_ message: String) {
