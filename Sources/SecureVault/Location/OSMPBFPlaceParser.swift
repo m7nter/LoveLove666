@@ -229,7 +229,9 @@ enum OSMPBFPlaceParser {
             case 3: compressed = (try reader.bytes(), COMPRESSION_ZLIB)
             case 4: compressed = (try reader.bytes(), COMPRESSION_LZMA)
             case 6: compressed = (try reader.bytes(), COMPRESSION_LZ4)
-            case 7: compressed = (try reader.bytes(), COMPRESSION_ZSTD)
+            // zstd_data (field 7) is not exposed by Apple's Compression API
+            // on the app's deployment SDK; those rare blocks are skipped as
+            // unsupported rather than making the whole source uncompilable.
             default: try reader.skip(wire: field.wire)
             }
         }
