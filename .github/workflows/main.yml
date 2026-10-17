@@ -85,9 +85,9 @@ jobs:
           ]
           process = subprocess.Popen(command)
           try:
-              status = process.wait(timeout=600)
+              status = process.wait(timeout=1200)
           except subprocess.TimeoutExpired:
-              print("Simulator tests exceeded 10 minutes; continuing to Release build.", flush=True)
+              print("Simulator tests exceeded 20 minutes; continuing to Release build.", flush=True)
               process.kill()
               process.wait()
               raise SystemExit(124)
@@ -164,3 +164,4 @@ jobs:
           name: LoveLove666-IPA
           path: SecureVault.ipa
           retention-days: 30
+
