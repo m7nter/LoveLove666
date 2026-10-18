@@ -168,6 +168,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+        request.setValue("Calculator/1.2.0 (com.securevault.app)", forHTTPHeaderField: "User-Agent")
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         request.httpBody = "data=\(encoded)".data(using: .utf8)
         request.timeoutInterval = 10
@@ -194,6 +195,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         fallback.httpMethod = "GET"
         fallback.setValue("application/json", forHTTPHeaderField: "Accept")
         fallback.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+        fallback.setValue("Calculator/1.2.0 (com.securevault.app)", forHTTPHeaderField: "User-Agent")
         fallback.timeoutInterval = 4
         let (data, response) = try await session.data(for: fallback)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
