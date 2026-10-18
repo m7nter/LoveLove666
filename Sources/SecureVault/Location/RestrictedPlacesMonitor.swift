@@ -23,9 +23,12 @@ final class RestrictedPlacesMonitor: ObservableObject {
 
     private init() {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 35
-        config.timeoutIntervalForResource = 60
-        config.waitsForConnectivity = true
+        // A capture check must fail fast when an Overpass endpoint is stalled.
+        // Waiting for connectivity here made a bad mobile/VPN route look like
+        // a frozen camera for almost a minute.
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 18
+        config.waitsForConnectivity = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.httpAdditionalHeaders = ["User-Agent": "Calculator/1.2.0 (com.securevault.app)"]
         session = URLSession(configuration: config)
@@ -103,7 +106,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let covered = snapshot?.covers(location, settings: settings, now: Date()) == true
         let shouldRefresh = !covered || snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 480 || $0.center.distance(from: location) > 250 } == true
         guard shouldRefresh else { return }
-        fetch(near: location, radius: settings.maximumRadius + 1000)
+        let radius = min(1500, max(250, settings.maximumRadius + settings.accuracyLimit + 200))
+        fetch(near: location, radius: radius, settings: settings)
     }
 
     private func publish(_ newValue: CaptureZoneDecision) {
@@ -111,30 +115,49 @@ final class RestrictedPlacesMonitor: ObservableObject {
     }
 
     static func query(near location: CLLocation, radius: Double) -> String {
+        query(near: location, radius: radius, settings: nil)
+    }
+
+    private static func query(near location: CLLocation, radius: Double, settings: RestrictedPlaceSettings?) -> String {
         let lat = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), location.coordinate.latitude)
         let lon = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), location.coordinate.longitude)
-        let filters = [
-            "[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]",
-            "[building~\"^(school|kindergarten)$\"]",
-            "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]",
-            "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"
-        ]
+        let enabled = settings.map { value in
+            Set(RestrictedPlaceKind.allCases.filter { value.includes($0) })
+        }
+        func includes(_ kind: RestrictedPlaceKind) -> Bool { enabled?.contains(kind) ?? true }
+        var filters: [String] = []
+        if includes(.playground) { filters.append("[leisure=playground]") }
+        if includes(.kindergarten) { filters += ["[amenity=kindergarten]", "[building=kindergarten]"] }
+        if includes(.school) { filters += ["[amenity=school]", "[building=school]"] }
+        if includes(.sports) { filters.append("[leisure~\"^(pitch|sports_centre|stadium|fitness_station|track)$\"]") }
+        if includes(.police) { filters += ["[amenity=police]", "[police]", "[government=police]"] }
+        if includes(.security) { filters.append("[government~\"^(security|intelligence)$\"]") }
+        if includes(.administration) { filters += ["[amenity=townhall]", "[government=administrative]"] }
+        if includes(.court) { filters += ["[amenity=courthouse]", "[government=court]"] }
+        if includes(.prosecutor) { filters.append("[government=prosecutor]") }
+        if includes(.recruitment) { filters.append("[government=recruitment]") }
+        if includes(.military) { filters += ["[landuse=military]", "[military]"] }
+        let governmentKind: [RestrictedPlaceKind] = [.police, .security, .administration, .court, .prosecutor, .recruitment, .military, .government]
+        if governmentKind.contains(where: { includes($0) }) { filters += ["[office=government]", "[government]"] }
+        // Avoid sending an invalid empty union when every kind was disabled.
+        if filters.isEmpty { filters = ["[amenity=__disabled__]"] }
+        filters = Array(Set(filters)).sorted()
         let around = "(around:\(Int(ceil(radius))),\(lat),\(lon))"
         // Match the proven desktop Awesome Coord request: bounded nearby
         // objects with full geometry. Keeping this query simple is critical on
         // mobile Overpass servers; the previous is_in/pivot branch could make
         // an otherwise healthy server reject the entire request.
         let selections = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
-        return "[out:json][timeout:20][maxsize:16777216];(\(selections));out tags geom;"
+        return "[out:json][timeout:10][maxsize:8388608];(\(selections));out tags geom;"
     }
 
     private static let overpassEndpoints = [
+        URL(string: "https://overpass.private.coffee/api/interpreter")!,
+        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
+        URL(string: "https://overpass.kumi.systems/api/interpreter")!,
         URL(string: "https://overpass-api.de/api/interpreter")!,
         URL(string: "https://lz4.overpass-api.de/api/interpreter")!,
         URL(string: "https://z.overpass-api.de/api/interpreter")!,
-        URL(string: "https://overpass.kumi.systems/api/interpreter")!,
-        URL(string: "https://overpass.private.coffee/api/interpreter")!,
-        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
         URL(string: "https://overpass.osm.ch/api/interpreter")!,
         URL(string: "https://overpass.nchc.org.tw/api/interpreter")!,
     ]
@@ -144,9 +167,10 @@ final class RestrictedPlacesMonitor: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         request.httpBody = "data=\(encoded)".data(using: .utf8)
-        request.timeoutInterval = 23
+        request.timeoutInterval = 10
 
         do {
             let (data, response) = try await session.data(for: request)
@@ -169,7 +193,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
         var fallback = URLRequest(url: getURL)
         fallback.httpMethod = "GET"
         fallback.setValue("application/json", forHTTPHeaderField: "Accept")
-        fallback.timeoutInterval = 23
+        fallback.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+        fallback.timeoutInterval = 4
         let (data, response) = try await session.data(for: fallback)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -192,6 +217,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
 
             var lastError: Error?
             var emptyResult: [RestrictedPlace]?
+            var emptyResults = 0
             var remaining = overpassEndpoints.count
             while remaining > 0 {
                 remaining -= 1
@@ -204,6 +230,15 @@ final class RestrictedPlacesMonitor: ObservableObject {
                             return result
                         }
                         emptyResult = result
+                        emptyResults += 1
+                        // Two independent valid empty responses are enough to
+                        // establish that this point has no mapped restricted
+                        // objects. Waiting for every distant endpoint made a
+                        // perfectly valid empty check take 20–40 seconds.
+                        if emptyResults >= 2 {
+                            group.cancelAll()
+                            return result
+                        }
                     }
                 } catch {
                     lastError = error
@@ -214,9 +249,9 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }
     }
 
-    private func fetch(near center: CLLocation, radius: Double) {
+    private func fetch(near center: CLLocation, radius: Double, settings: RestrictedPlaceSettings) {
         let id = UUID(); requestID = id
-        let query = Self.query(near: center, radius: radius)
+        let query = Self.query(near: center, radius: radius, settings: settings)
         let session = self.session
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
         lastCheckSummary = "Выполняем запрос к OpenStreetMap…"
