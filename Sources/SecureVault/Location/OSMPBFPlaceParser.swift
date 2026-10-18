@@ -6,7 +6,17 @@ import Compression
 /// nodes, ways and relations and converts them to the app's RestrictedPlace
 /// geometry, so the downloaded PBF never becomes part of the live camera path.
 enum OSMPBFPlaceParser {
-    enum ParseError: Error { case invalidBlob, unsupportedCompression, invalidGeometry }
+    enum ParseError: LocalizedError {
+        case invalidBlob, unsupportedCompression, invalidGeometry
+        var errorDescription: String? {
+            switch self {
+            case .invalidBlob: return "Файл OSM обрезан или повреждён."
+            case .unsupportedCompression: return "Не удалось распаковать блок OSM: неподдерживаемое сжатие или повреждённые данные."
+            case .invalidGeometry: return "В базе OSM обнаружена неполная геометрия территории."
+            }
+        }
+    }
+    private static let maximumBlobSize = 32 * 1024 * 1024
 
     private struct Reader {
         let data: Data
@@ -25,8 +35,9 @@ enum OSMPBFPlaceParser {
         }
 
         mutating func bytes() throws -> Data {
-            let length = Int(try varint())
-            guard length >= 0, index + length <= data.count else { throw ParseError.invalidBlob }
+            let rawLength = try varint()
+            guard rawLength <= UInt64(OSMPBFPlaceParser.maximumBlobSize), rawLength <= UInt64(data.count - index) else { throw ParseError.invalidBlob }
+            let length = Int(rawLength)
             let result = data.subdata(in: index..<(index + length)); index += length
             return result
         }
@@ -34,6 +45,7 @@ enum OSMPBFPlaceParser {
         mutating func field() throws -> (number: Int, wire: Int)? {
             guard !isAtEnd else { return nil }
             let key = try varint()
+            guard key >> 3 > 0 else { throw ParseError.invalidBlob }
             return (Int(key >> 3), Int(key & 7))
         }
 
@@ -53,7 +65,7 @@ enum OSMPBFPlaceParser {
     private struct Relation { let id: Int64; let tags: [String: String]; let members: [Member] }
 
     private static func signed(_ value: UInt64) -> Int64 {
-        Int64((value >> 1) ^ (~(value & 1) &+ 1))
+        Int64(bitPattern: (value >> 1) ^ (~(value & 1) &+ 1))
     }
 
     private static func packedVarints(_ data: Data) throws -> [UInt64] {
@@ -85,11 +97,11 @@ enum OSMPBFPlaceParser {
         var keys: [UInt64] = [], values: [UInt64] = []
         while let field = try reader.field() {
             switch field.number {
-            case 1: id = Int64(bitPattern: try reader.varint())
+            case 1: id = signed(try reader.varint())
             case 2: keys = try packedVarints(try reader.bytes())
             case 3: values = try packedVarints(try reader.bytes())
-            case 8: lat = Int64(bitPattern: try reader.varint())
-            case 9: lon = Int64(bitPattern: try reader.varint())
+            case 8: lat = signed(try reader.varint())
+            case 9: lon = signed(try reader.varint())
             default: try reader.skip(wire: field.wire)
             }
         }
@@ -102,8 +114,8 @@ enum OSMPBFPlaceParser {
         var reader = Reader(data: data), ids: [UInt64] = [], lats: [UInt64] = [], lons: [UInt64] = [], keyValues: [UInt64] = []
         while let field = try reader.field() {
             switch field.number {
-            case 1: _ = try reader.bytes() // DenseInfo is not needed.
-            case 5: ids = try packedVarints(try reader.bytes())
+            case 1: ids = try packedVarints(try reader.bytes())
+            case 5: _ = try reader.bytes() // DenseInfo, not node IDs.
             case 8: lats = try packedVarints(try reader.bytes())
             case 9: lons = try packedVarints(try reader.bytes())
             case 10: keyValues = try packedVarints(try reader.bytes())
@@ -112,7 +124,8 @@ enum OSMPBFPlaceParser {
         }
         var result: [(Int64, OSMCoordinate, [String: String])] = []
         var id: Int64 = 0, lat: Int64 = 0, lon: Int64 = 0, tagIndex = 0
-        for index in 0..<min(ids.count, min(lats.count, lons.count)) {
+        guard ids.count == lats.count, ids.count == lons.count else { throw ParseError.invalidBlob }
+        for index in ids.indices {
             id += signed(ids[index]); lat += signed(lats[index]); lon += signed(lons[index])
             var keyList: [UInt64] = [], valueList: [UInt64] = []
             while tagIndex < keyValues.count, keyValues[tagIndex] != 0 {
@@ -156,11 +169,11 @@ enum OSMPBFPlaceParser {
             default: try reader.skip(wire: field.wire)
             }
         }
-        var previous: Int64 = 0, roleID: Int64 = 0; var members: [Member] = []
+        var previous: Int64 = 0; var members: [Member] = []
         for index in 0..<min(refs.count, min(roles.count, types.count)) {
             previous += signed(refs[index])
-            // roles_sid is a delta-coded int32 array in the OSM PBF schema.
-            roleID += Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: roles[index])))
+            // roles_sid contains absolute string-table indexes (not deltas).
+            let roleID = Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: roles[index])))
             let role = roleID >= 0 && roleID < Int64(table.count) ? table[Int(roleID)] : ""
             members.append(Member(type: Int(types[index]), role: role, ref: previous))
         }
@@ -197,25 +210,36 @@ enum OSMPBFPlaceParser {
 
     private static func decode(_ compressed: Data, algorithm: compression_algorithm, expectedSize: Int) throws -> Data {
         guard !compressed.isEmpty else { throw ParseError.unsupportedCompression }
-        var capacity = max(expectedSize, compressed.count * 4, 4096)
+        guard expectedSize >= 0, expectedSize <= maximumBlobSize else { throw ParseError.invalidBlob }
+        var capacity = min(max(expectedSize, compressed.count * 4, 4096), maximumBlobSize)
         // A regional PBF can contain blocks whose compression ratio is larger
         // than the advertised raw_size. Grow the output instead of treating
         // the first undersized decode as a corrupt database.
         for _ in 0..<8 {
             var output = Data(count: capacity)
+            let sourceData: Data
+            if algorithm == COMPRESSION_ZLIB, compressed.count > 6 {
+                // OSM Blob.zlib_data is an RFC1950 stream. Apple's
+                // COMPRESSION_ZLIB decoder expects the inner RFC1951 raw
+                // DEFLATE payload, so remove the two-byte header and Adler32.
+                sourceData = compressed.subdata(in: 2..<(compressed.count - 4))
+            } else {
+                sourceData = compressed
+            }
             let decoded = output.withUnsafeMutableBytes { destination in
-                compressed.withUnsafeBytes { source in
+                sourceData.withUnsafeBytes { source in
                     guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
                           let sourceBase = source.bindMemory(to: UInt8.self).baseAddress else { return 0 }
                     return compression_decode_buffer(destinationBase, capacity, sourceBase,
-                                                     compressed.count, nil, algorithm)
+                                                     sourceData.count, nil, algorithm)
                 }
             }
             if decoded > 0 {
                 output.removeSubrange(decoded..<output.count)
                 return output
             }
-            capacity *= 2
+            guard capacity < maximumBlobSize else { break }
+            capacity = min(capacity * 2, maximumBlobSize)
         }
         throw ParseError.unsupportedCompression
     }
@@ -225,7 +249,10 @@ enum OSMPBFPlaceParser {
         while let field = try reader.field() {
             switch field.number {
             case 1: raw = try reader.bytes()
-            case 2: rawSize = Int(try reader.varint())
+            case 2:
+                let value = try reader.varint()
+                guard value <= UInt64(maximumBlobSize) else { throw ParseError.invalidBlob }
+                rawSize = Int(value)
             case 3: compressed = (try reader.bytes(), COMPRESSION_ZLIB)
             case 4: compressed = (try reader.bytes(), COMPRESSION_LZMA)
             case 6: compressed = (try reader.bytes(), COMPRESSION_LZ4)
@@ -250,7 +277,7 @@ enum OSMPBFPlaceParser {
             while let field = try header.field() {
                 switch field.number { case 1: type = String(data: try header.bytes(), encoding: .utf8) ?? ""; case 3: dataSize = Int(try header.varint()); default: try header.skip(wire: field.wire) }
             }
-            guard dataSize > 0, offset + dataSize <= data.count else { throw ParseError.invalidBlob }
+            guard dataSize > 0, dataSize <= maximumBlobSize, offset + dataSize <= data.count else { throw ParseError.invalidBlob }
             let blob = try uncompressedBlob(data.subdata(in: offset..<(offset + dataSize))); offset += dataSize
             if type == "OSMData" { try body(blob); block += 1; progress?(offset, data.count) }
         }
