@@ -217,7 +217,6 @@ final class RestrictedPlacesMonitor: ObservableObject {
 
             var lastError: Error?
             var emptyResult: [RestrictedPlace]?
-            var emptyResults = 0
             var remaining = overpassEndpoints.count
             while remaining > 0 {
                 remaining -= 1
@@ -229,16 +228,12 @@ final class RestrictedPlacesMonitor: ObservableObject {
                             group.cancelAll()
                             return result
                         }
+                        // Keep waiting for every endpoint before accepting an
+                        // empty result. A slow replica may still contain a
+                        // nearby object; allowing capture on an early empty
+                        // response would turn a transient replica difference
+                        // into a false negative.
                         emptyResult = result
-                        emptyResults += 1
-                        // Two independent valid empty responses are enough to
-                        // establish that this point has no mapped restricted
-                        // objects. Waiting for every distant endpoint made a
-                        // perfectly valid empty check take 20–40 seconds.
-                        if emptyResults >= 2 {
-                            group.cancelAll()
-                            return result
-                        }
                     }
                 } catch {
                     lastError = error
