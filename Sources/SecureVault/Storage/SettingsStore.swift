@@ -186,14 +186,14 @@ class SettingsStore: ObservableObject {
     }
 
     private func saveAvatar() {
-        guard avatarImage != nil else { UserDefaults.standard.removeObject(forKey: avatarKey); return }
+        guard avatarImage != nil else { ProtectedPreferences.remove(forKey: avatarKey); return }
         guard let img = avatarImage,
               let data = img.jpegData(compressionQuality: 0.8) else { return }
-        UserDefaults.standard.set(data, forKey: avatarKey)
+        ProtectedPreferences.set(data, forKey: avatarKey)
     }
 
     private func loadAvatar() {
-        guard let data = UserDefaults.standard.data(forKey: avatarKey),
+        guard let data = ProtectedPreferences.data(forKey: avatarKey),
               let img = UIImage(data: data) else { return }
         avatarImage = img
     }

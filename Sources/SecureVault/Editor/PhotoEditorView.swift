@@ -3,14 +3,14 @@ import CoreLocation
 
 class LabelTemplatesStore: ObservableObject {
     @Published var templates: [String] {
-        didSet { UserDefaults.standard.set(templates, forKey: "labelTemplates") }
+        didSet { ProtectedPreferences.set(templates, forKey: "labelTemplates") }
     }
     @Published var selected: String {
-        didSet { UserDefaults.standard.set(selected, forKey: "selectedTemplate") }
+        didSet { ProtectedPreferences.set(selected, forKey: "selectedTemplate") }
     }
     init() {
-        templates = UserDefaults.standard.stringArray(forKey: "labelTemplates") ?? []
-        selected = UserDefaults.standard.string(forKey: "selectedTemplate") ?? ""
+        templates = ProtectedPreferences.stringArray(forKey: "labelTemplates") ?? []
+        selected = ProtectedPreferences.string(forKey: "selectedTemplate") ?? ""
     }
 }
 

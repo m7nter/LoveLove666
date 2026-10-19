@@ -172,28 +172,26 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertEqual(result.nearby.map(\.distance).sorted(), result.nearby.map(\.distance))
     }
 
-    func testPublicOSMFixturesClassifyAndBlockAtTheirCoordinates() {
-        // Public OSM objects used as deterministic fixtures. The coordinates
-        // are the node/way centres returned by Nominatim; no live network is
-        // used by this test. The policy is tested with the same tags that the
-        // Overpass response supplies to the production parser.
+    func testOSMFixturesClassifyAndBlockAtTheirCoordinates() {
+        // Synthetic deterministic fixtures. No live network or real place
+        // names are embedded in the public test bundle.
         let fixtures: [(id: String, name: String, coordinate: OSMCoordinate,
                         tags: [String: String], kind: RestrictedPlaceKind)] = [
-            ("way/108600823", "Детский сад № 42 «Берёзка»",
-             .init(lat: 55.7471650, lon: 49.2175018),
-             ["amenity": "kindergarten", "name": "Детский сад № 42 «Берёзка»"], .kindergarten),
-            ("way/224409933", "Школа № 48",
-             .init(lat: 58.6164547, lon: 49.6578119),
-             ["amenity": "school", "name": "Школа № 48"], .school),
-            ("way/167357062", "Управление МВД России по г. Кирову",
-             .init(lat: 58.5764585, lon: 49.6221460),
-             ["amenity": "police", "name": "Управление МВД России по г. Кирову"], .police),
-            ("node/6042787228", "Управления ФСБ РФ",
+            ("fixture-kindergarten", "Тестовый детский сад",
+             .init(lat: 55.7471650, lon: 37.2175018),
+             ["amenity": "kindergarten", "name": "Тестовый детский сад"], .kindergarten),
+            ("fixture-school", "Тестовая школа",
+             .init(lat: 52.6164547, lon: 49.6578119),
+             ["amenity": "school", "name": "Тестовая школа"], .school),
+            ("fixture-police", "Тестовый пункт полиции",
+             .init(lat: 53.5764585, lon: 39.6221460),
+             ["amenity": "police", "name": "Тестовый пункт полиции"], .police),
+            ("fixture-security", "Тестовый объект безопасности",
              .init(lat: 54.0749374, lon: 34.2971248),
-             ["amenity": "police", "name": "Управления ФСБ РФ"], .security),
-            ("way/167412177", "Администрация города Кирова",
-             .init(lat: 58.5945006, lon: 49.6695218),
-             ["amenity": "townhall", "name": "Администрация города Кирова"], .administration)
+             ["amenity": "police", "name": "Тестовый объект безопасности"], .security),
+            ("fixture-administration", "Тестовая администрация",
+             .init(lat: 55.5945006, lon: 39.6695218),
+             ["amenity": "townhall", "name": "Тестовая администрация"], .administration)
         ]
 
         for fixture in fixtures {
@@ -207,10 +205,10 @@ final class RestrictedPlacesTests: XCTestCase {
         }
     }
 
-    func testPublicOSMFixtureUsesConfiguredBoundaryDistance() {
-        let coordinate = OSMCoordinate(lat: 55.7471650, lon: 49.2175018)
-        let place = RestrictedPlace(id: "way/108600823", kind: .kindergarten,
-                                    name: "Детский сад № 42 «Берёзка»", point: coordinate,
+    func testOSMFixtureUsesConfiguredBoundaryDistance() {
+        let coordinate = OSMCoordinate(lat: 55.7471650, lon: 37.2175018)
+        let place = RestrictedPlace(id: "fixture-kindergarten", kind: .kindergarten,
+                                    name: "Тестовый детский сад", point: coordinate,
                                     lines: [], outerRings: [], innerRings: [])
         let center = location(coordinate.lat, coordinate.lon, accuracy: 1)
         XCTAssertTrue(decisionAt(offset(center, northMeters: 64), [place]).blocked)

@@ -6,11 +6,24 @@ import Security
 enum KeychainCodeStore {
     private static let service = "com.securevault.accesscodes"
     private static let accounts = ["mainCode", "vaultCode", "kamikazeCode", "actionButtonToken"]
+    private static let migrationPrefix = "legacyMigrated."
 
     private static func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
          kSecAttrAccount as String: account]
+    }
+
+    private static func migrationAccount(_ account: String) -> String { migrationPrefix + account }
+
+    private static func hasMigrationMarker(_ account: String) -> Bool {
+        var request = query(migrationAccount(account))
+        request[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(request as CFDictionary, nil) == errSecSuccess
+    }
+
+    private static func markMigrated(_ account: String) throws {
+        try write("1", for: migrationAccount(account))
     }
 
     static func read(_ account: String, legacyDefault: String = "",
@@ -28,13 +41,21 @@ enum KeychainCodeStore {
         if status == errSecSuccess {
             guard let data = result as? Data,
                   let value = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadCorruptFile) }
+            if !hasMigrationMarker(account) { try? markMigrated(account) }
             return value
         }
         // Other Keychain errors must never turn into the known legacy default.
         guard status == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         let value = UserDefaults.standard.string(forKey: account) ?? legacyDefault
-        guard !value.isEmpty else { return "" }
+        if value.isEmpty {
+            if !hasMigrationMarker(account) { try? markMigrated(account) }
+            return ""
+        }
+        // Never import a value injected into the preferences plist after this
+        // account has already been initialized.
+        guard !hasMigrationMarker(account) else { return "" }
         try write(value, for: account, accessible: accessible)
+        try markMigrated(account)
         return value
     }
 
@@ -68,7 +89,10 @@ enum KeychainCodeStore {
     }
 
     static func deleteAll() throws {
-        for account in accounts { try delete(account) }
+        for account in accounts {
+            try delete(account)
+            try delete(migrationAccount(account))
+        }
     }
 
     static func readActionToken() -> String {

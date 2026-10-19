@@ -109,8 +109,12 @@ struct VaultEraseService {
         // must not reopen the vault on the next launch.
         guard defaults.synchronize() else { throw CocoaError(.fileWriteUnknown) }
         try fm.createDirectory(at: directories.support, withIntermediateDirectories: true)
-        try Data(mode.rawValue.utf8).write(to: directories.pendingMarker, options: .atomic)
-        if mode == .disable { try Data("disabled".utf8).write(to: directories.disabledMarker, options: .atomic) }
+        try Data(mode.rawValue.utf8).write(to: directories.pendingMarker,
+                                           options: [.atomic, .completeFileProtection])
+        if mode == .disable {
+            try Data("disabled".utf8).write(to: directories.disabledMarker,
+                                             options: [.atomic, .completeFileProtection])
+        }
     }
 
     func prepareCryptographicReset(_ mode: ActionButtonMode) throws {
@@ -149,6 +153,7 @@ struct VaultEraseService {
         }
         if mode != .photos { defaults.removePersistentDomain(forName: defaultsDomain) }
         defaults.removeObject(forKey: "pendingCaptureEvent")
+        ProtectedPreferences.remove(forKey: "pendingCaptureEvent")
         defaults.set(generation, forKey: "vaultGeneration")
         if mode == .photos {
             try fm.createDirectory(at: directories.documents.appendingPathComponent("VaultPhotos"), withIntermediateDirectories: true)

@@ -55,7 +55,7 @@ final class CameraViewModel: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        if let data = UserDefaults.standard.data(forKey: "pendingCaptureEvent") {
+        if let data = ProtectedPreferences.data(forKey: "pendingCaptureEvent") {
             event = try? JSONDecoder().decode(CaptureContext.self, from: data)
             reconcileEvent()
         }
@@ -289,8 +289,8 @@ final class CameraViewModel: NSObject, ObservableObject {
     }
     private func persistEvent() {
         if let event = event, let data = try? JSONEncoder().encode(event) {
-            UserDefaults.standard.set(data, forKey: "pendingCaptureEvent")
-        } else { UserDefaults.standard.removeObject(forKey: "pendingCaptureEvent") }
+            ProtectedPreferences.set(data, forKey: "pendingCaptureEvent")
+        } else { ProtectedPreferences.remove(forKey: "pendingCaptureEvent") }
     }
     private func reportError(_ message: String) { DispatchQueue.main.async { self.error = message } }
 

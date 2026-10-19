@@ -111,7 +111,7 @@ struct VaultView: View {
     private func receivePhoto(_ image: UIImage, _ location: CLLocation?, _ heading: CLHeading?) {
         capturedLocation = location; capturedHeading = heading
         if cameraVM.quickMode {
-            let label = UserDefaults.standard.string(forKey: "selectedTemplate").flatMap { $0.isEmpty ? nil : $0 }
+            let label = ProtectedPreferences.string(forKey: "selectedTemplate").flatMap { $0.isEmpty ? nil : $0 }
             let context = cameraVM.pendingContext
             isSavingQuickPhoto = true
             cameraVM.isCapturing = true

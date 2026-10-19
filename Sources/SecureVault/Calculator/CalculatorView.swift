@@ -6,6 +6,9 @@ struct CalculatorView: View {
     @StateObject private var conversion = ConversionModel()
     var onUnlock: () -> Void
     var onAccess: () -> Void
+    /// Legacy installs with the known compatibility code must complete setup
+    /// before the hidden calculator entry can unlock the vault.
+    var vaultEntryEnabled: Bool = true
     @State private var showHistory = false
     @State private var scientific = false
     @State private var converting = false
@@ -53,6 +56,7 @@ struct CalculatorView: View {
         }
         .background(Color.black.ignoresSafeArea()).preferredColorScheme(.dark)
         .onAppear {
+            vm.allowsVaultEntry = vaultEntryEnabled
             #if DEBUG && targetEnvironment(simulator)
             let args = ProcessInfo.processInfo.arguments
             if args.contains("--preview-scientific") { scientific = true }
@@ -73,7 +77,7 @@ struct CalculatorView: View {
             if value { vm.shouldUnlock = false; onUnlock() }
         }
         .onChange(of: converting) { value in
-            vm.allowsVaultEntry = !value
+            vm.allowsVaultEntry = vaultEntryEnabled && !value
         }
         .sheet(isPresented: $showHistory) {
             HistoryView(history: $vm.history, onSelect: vm.useHistory)

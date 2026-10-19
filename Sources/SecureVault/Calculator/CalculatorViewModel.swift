@@ -16,7 +16,7 @@ final class CalculatorViewModel: ObservableObject {
     @Published var history: [HistoryRecord] = CalculatorViewModel.loadHistory() {
         didSet {
             if let data = try? JSONEncoder().encode(history) {
-                UserDefaults.standard.set(data, forKey: "calculator.history.v2")
+                ProtectedPreferences.set(data, forKey: "calculator.history.v2")
             }
         }
     }
@@ -173,7 +173,7 @@ final class CalculatorViewModel: ObservableObject {
                 && store.kamikazeCode != store.mainCode && pinInput == store.kamikazeCode {
                 VaultLifecycle.shared.erase(.photos); reset(); return
             }
-            if canTryCode && !store.mainCode.isEmpty && pinInput == store.mainCode {
+            if canTryCode && !store.mainCode.isEmpty && store.mainCode != "2026" && pinInput == store.mainCode {
                 UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
                 UserDefaults.standard.removeObject(forKey: pinCooldownKey)
                 shouldUnlock = true; reset(); return
@@ -213,17 +213,22 @@ final class CalculatorViewModel: ObservableObject {
     }
 
     private static func loadHistory() -> [HistoryRecord] {
-        if let data = UserDefaults.standard.data(forKey: "calculator.history.v2"),
+        if let data = ProtectedPreferences.data(forKey: "calculator.history.v2"),
            let records = try? JSONDecoder().decode([HistoryRecord].self, from: data) {
             return records
         }
         let legacy = UserDefaults.standard.stringArray(forKey: "calculator.history") ?? []
-        return legacy.compactMap { value in
+        let records = legacy.compactMap { value in
             let parts = value.components(separatedBy: " = ")
             guard parts.count >= 2 else { return nil }
             return HistoryRecord(id: UUID(), expression: parts.dropLast().joined(separator: " = "),
                                  result: parts.last!, date: Date())
         }
+        if !records.isEmpty, let data = try? JSONEncoder().encode(records) {
+            ProtectedPreferences.set(data, forKey: "calculator.history.v2")
+            UserDefaults.standard.removeObject(forKey: "calculator.history")
+        }
+        return records
     }
     private func readable(_ values: [String]) -> String {
         values.map { Double($0).map(Self.format) ?? ($0 == "root" ? "ʸ√" : $0) }.joined()

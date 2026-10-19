@@ -192,7 +192,7 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertNotNil(manager.lastError)
         XCTAssertEqual(try Data(contentsOf: url), original)
     }
-    func testArithmeticOperandDoesNotUnlockVault() {
+    func testKnownLegacyCodeNeverUnlocksVault() {
         let previous = SettingsStore.shared.mainCode
         defer { SettingsStore.shared.mainCode = previous }
         SettingsStore.shared.mainCode = "2026"
@@ -204,6 +204,6 @@ final class ExportAndErasureTests: XCTestCase {
         calculator.tap("AC")
         for digit in "2026" { calculator.tap(String(digit)) }
         calculator.tap("=")
-        XCTAssertTrue(calculator.shouldUnlock)
+        XCTAssertFalse(calculator.shouldUnlock)
     }
 }

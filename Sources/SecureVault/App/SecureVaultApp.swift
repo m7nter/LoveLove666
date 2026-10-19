@@ -145,6 +145,8 @@ struct SecureVaultApp: App {
     }
 
     private func setupCrashLogging() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.removeItem(at: caches.appendingPathComponent("crash.log"))
         NSSetUncaughtExceptionHandler { exception in
             guard (try? VaultGate.shared.withAccess { true }) == true else { return }
             let log = """
@@ -196,7 +198,8 @@ struct RootView: View {
             } else if isUnlocked {
                 VaultView(onLock: lock)
             } else {
-                CalculatorView(onUnlock: unlock, onAccess: openHiddenAccess)
+                CalculatorView(onUnlock: unlock, onAccess: openHiddenAccess,
+                               vaultEntryEnabled: !needsSetup)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
