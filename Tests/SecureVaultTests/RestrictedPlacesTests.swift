@@ -18,6 +18,17 @@ final class RestrictedPlacesTests: XCTestCase {
     private func decision(_ location: CLLocation?, _ places: [RestrictedPlace] = [], settings: RestrictedPlaceSettings? = nil) -> CaptureZoneDecision {
         RestrictedPlacesPolicy.evaluate(location: location, settings: settings ?? enabled, snapshot: snapshot(places), now: now)
     }
+    private func decisionAt(_ current: CLLocation, _ places: [RestrictedPlace], settings: RestrictedPlaceSettings? = nil) -> CaptureZoneDecision {
+        let nearby = RestrictedPlacesSnapshot(center: current, radius: 2_000,
+                                              fetchedAt: now, places: places)
+        return RestrictedPlacesPolicy.evaluate(location: current, settings: settings ?? enabled,
+                                               snapshot: nearby, now: now)
+    }
+    private func offset(_ location: CLLocation, northMeters: Double) -> CLLocation {
+        let latitude = location.coordinate.latitude + northMeters / 111_132.0
+        return CLLocation(coordinate: .init(latitude: latitude, longitude: location.coordinate.longitude),
+                          altitude: 0, horizontalAccuracy: 1, verticalAccuracy: 1, timestamp: now)
+    }
     private func parse(_ json: String) throws -> [RestrictedPlace] { try RestrictedPlacesParser.parse(Data(json.utf8)) }
 
     func testDisabledAllowsWithoutGPSOrNetwork() {
@@ -139,11 +150,61 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(query.contains("out tags geom"))
         XCTAssertFalse(query.contains("out center"))
     }
+
     func testClosestReasonsAreShownFirst() {
         let result = decision(location(), [point(0.0004, kind: .school), point(0.0001)])
         XCTAssertTrue(result.blocked)
         XCTAssertTrue(result.message.hasPrefix("Детская площадка —"))
         XCTAssertTrue(result.message.contains("Школа —"))
+    }
+
+    func testPublicOSMFixturesClassifyAndBlockAtTheirCoordinates() {
+        // Public OSM objects used as deterministic fixtures. The coordinates
+        // are the node/way centres returned by Nominatim; no live network is
+        // used by this test. The policy is tested with the same tags that the
+        // Overpass response supplies to the production parser.
+        let fixtures: [(id: String, name: String, coordinate: OSMCoordinate,
+                        tags: [String: String], kind: RestrictedPlaceKind)] = [
+            ("way/108600823", "Детский сад № 42 «Берёзка»",
+             .init(lat: 55.7471650, lon: 49.2175018),
+             ["amenity": "kindergarten", "name": "Детский сад № 42 «Берёзка»"], .kindergarten),
+            ("way/224409933", "Школа № 48",
+             .init(lat: 58.6164547, lon: 49.6578119),
+             ["amenity": "school", "name": "Школа № 48"], .school),
+            ("way/167357062", "Управление МВД России по г. Кирову",
+             .init(lat: 58.5764585, lon: 49.6221460),
+             ["amenity": "police", "name": "Управление МВД России по г. Кирову"], .police),
+            ("node/6042787228", "Управления ФСБ РФ",
+             .init(lat: 54.0749374, lon: 34.2971248),
+             ["amenity": "police", "name": "Управления ФСБ РФ"], .security),
+            ("way/167412177", "Администрация города Кирова",
+             .init(lat: 58.5945006, lon: 49.6695218),
+             ["amenity": "townhall", "name": "Администрация города Кирова"], .administration)
+        ]
+
+        for fixture in fixtures {
+            XCTAssertEqual(RestrictedPlaceKind.classify(fixture.tags), fixture.kind, fixture.name)
+            let place = RestrictedPlace(id: fixture.id, kind: fixture.kind, name: fixture.name,
+                                        point: fixture.coordinate, lines: [], outerRings: [], innerRings: [])
+            let current = location(fixture.coordinate.lat, fixture.coordinate.lon, accuracy: 1)
+            let result = decisionAt(current, [place])
+            XCTAssertTrue(result.blocked, fixture.name)
+            XCTAssertTrue(result.message.contains(fixture.kind.singular), result.message)
+        }
+    }
+
+    func testPublicOSMFixtureUsesConfiguredBoundaryDistance() {
+        let coordinate = OSMCoordinate(lat: 55.7471650, lon: 49.2175018)
+        let place = RestrictedPlace(id: "way/108600823", kind: .kindergarten,
+                                    name: "Детский сад № 42 «Берёзка»", point: coordinate,
+                                    lines: [], outerRings: [], innerRings: [])
+        let center = location(coordinate.lat, coordinate.lon, accuracy: 1)
+        XCTAssertTrue(decisionAt(offset(center, northMeters: 64), [place]).blocked)
+        XCTAssertFalse(decisionAt(offset(center, northMeters: 66), [place]).blocked)
+
+        var settings = enabled
+        settings.radii[RestrictedPlaceKind.kindergarten.rawValue] = 120
+        XCTAssertTrue(decisionAt(offset(center, northMeters: 110), [place], settings: settings).blocked)
     }
 
     func testDistanceProtectionIsBetweenEventsNotEventPhotos() {

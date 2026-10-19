@@ -210,39 +210,41 @@ final class RestrictedPlacesMonitor: ObservableObject {
     }
 
     private static func requestPlacesFromAnyEndpoint(session: URLSession, query: String) async throws -> [RestrictedPlace] {
-        try await withThrowingTaskGroup(of: [RestrictedPlace].self) { group in
-            for endpoint in overpassEndpoints {
-                group.addTask {
-                    try await requestPlaces(session: session, endpoint: endpoint, query: query)
+        // A valid empty Overpass response is still a complete answer. Waiting
+        // for every mirror before accepting [] made a quiet location take as
+        // long as the slowest or unreachable endpoint (often 10–18 seconds).
+        // Race a small primary set and accept the first valid response,
+        // including an empty one. Backups are used only when every primary
+        // endpoint fails, so a slow mirror cannot hold the camera hostage.
+        func firstValid(from endpoints: ArraySlice<URL>) async throws -> [RestrictedPlace] {
+            guard !endpoints.isEmpty else { throw URLError(.cannotLoadFromNetwork) }
+            return try await withThrowingTaskGroup(of: [RestrictedPlace].self) { group in
+                for endpoint in endpoints {
+                    group.addTask {
+                        try await requestPlaces(session: session, endpoint: endpoint, query: query)
+                    }
                 }
-            }
-
-            var lastError: Error?
-            var emptyResult: [RestrictedPlace]?
-            var remaining = overpassEndpoints.count
-            while remaining > 0 {
-                remaining -= 1
-                do {
-                    if let result = try await group.next() {
-                        // Do not let one healthy but incomplete server's empty
-                        // response hide objects returned by another endpoint.
-                        if !result.isEmpty {
+                var lastError: Error?
+                var remaining = endpoints.count
+                while remaining > 0 {
+                    remaining -= 1
+                    do {
+                        if let result = try await group.next() {
                             group.cancelAll()
                             return result
                         }
-                        // Keep waiting for every endpoint before accepting an
-                        // empty result. A slow replica may still contain a
-                        // nearby object; allowing capture on an early empty
-                        // response would turn a transient replica difference
-                        // into a false negative.
-                        emptyResult = result
+                    } catch {
+                        lastError = error
                     }
-                } catch {
-                    lastError = error
                 }
+                throw lastError ?? URLError(.cannotLoadFromNetwork)
             }
-            if let emptyResult { return emptyResult }
-            throw lastError ?? URLError(.cannotLoadFromNetwork)
+        }
+
+        do {
+            return try await firstValid(from: overpassEndpoints.prefix(4))
+        } catch {
+            return try await firstValid(from: overpassEndpoints.dropFirst(4))
         }
     }
 
@@ -253,6 +255,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
         lastCheckSummary = "Выполняем запрос к OpenStreetMap…"
         publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
+        let startedAt = Date()
         requestTask = Task { [weak self] in
             do {
                 let places = try await Self.requestPlacesFromAnyEndpoint(session: session, query: query)
@@ -261,7 +264,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
                     guard let self, self.active, self.requestID == id else { return }
                     self.requestTask = nil; self.requestID = nil
                     self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: places)
-                    self.lastCheckSummary = "Успешно: найдено объектов — \(places.count). Обновлено сейчас."
+                    let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
+                    self.lastCheckSummary = "Успешно: найдено объектов — \(places.count). Ответ за \(elapsed) с."
                     self.failureCount = 0; self.nextRequest = Date().addingTimeInterval(30)
                     self.unavailableReason = "Проверяем ближайшие территории…"
                     self.tick()
@@ -286,4 +290,3 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }
     }
 }
-
