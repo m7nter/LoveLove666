@@ -8,12 +8,21 @@ struct SettingsView: View {
     @State private var showChangeVault = false
     @State private var showChangeKamikaze = false
     @State private var showActionButtonWarning = false
+    @State private var showGuide = false
     @State private var pendingActionMode: ActionButtonMode = .off
     @State private var newMode = ""
 
     var body: some View {
         NavigationView {
             List {
+                Section {
+                    Button {
+                        showGuide = true
+                    } label: {
+                        Label("Руководство по использованию", systemImage: "book.closed.fill")
+                    }
+                    .foregroundColor(.orange)
+                }
                 Section("Нумерация фото") {
                     Picker("Номера", selection: $store.numberingMode) {
                         Text("Выключена").tag("off")
@@ -326,6 +335,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showPicker) {
             ImagePicker { img in store.avatarImage = img }
+        }
+        .sheet(isPresented: $showGuide) {
+            WelcomeGuideView()
         }
         .sheet(isPresented: $showChangeMain) {
             ChangeCodeView(title: "Основной пароль", currentCode: store.mainCode, requireCurrent: true,

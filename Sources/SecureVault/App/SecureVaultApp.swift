@@ -169,8 +169,11 @@ struct RootView: View {
     let onBlockedAccess: () -> Void
     @State private var needsSetup = false
     @State private var showAccess = false
+    @State private var showWelcomePrompt = false
+    @State private var showWelcomeGuide = false
     @State private var accessError: String?
     @State private var accessChecked = false
+    @AppStorage("welcomeGuidePromptVersion") private var welcomeGuidePromptVersion = 0
 
     var body: some View {
         Group {
@@ -199,6 +202,24 @@ struct RootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showWelcomePrompt) {
+            WelcomeGuidePromptView(
+                onGuide: {
+                    welcomeGuidePromptVersion = 1
+                    showWelcomePrompt = false
+                    DispatchQueue.main.async {
+                        showWelcomeGuide = true
+                    }
+                },
+                onExperienced: {
+                    welcomeGuidePromptVersion = 1
+                    showWelcomePrompt = false
+                }
+            )
+        }
+        .sheet(isPresented: $showWelcomeGuide) {
+            WelcomeGuideView()
+        }
     }
 
     private func refreshAccess(initial: Bool = false) {
@@ -237,6 +258,7 @@ struct RootView: View {
     private func unlock() {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
+        let wasSetup = needsSetup
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--test-gallery") {
             // Encryption is available after launch, never during App.init.
@@ -259,6 +281,9 @@ struct RootView: View {
         needsSetup = false; showAccess = false
         isUnlocked = true; isCameraOnly = false
         onStartTimer()
+        if wasSetup && welcomeGuidePromptVersion == 0 && !isUITestFixture {
+            showWelcomePrompt = true
+        }
     }
     private func lock() {
         isUnlocked = false; isCameraOnly = false

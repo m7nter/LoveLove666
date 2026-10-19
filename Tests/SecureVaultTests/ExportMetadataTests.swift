@@ -49,6 +49,19 @@ final class ExportMetadataTests: XCTestCase {
         let standard = try XCTUnwrap(ExportMetadata.archiveText(records, options: [.coordinates, .event]))
         XCTAssertEqual(standard.components(separatedBy: "Координаты:").count - 1, 1)
     }
+    func testEventCaptionContainsOnlyThatEventsCoordinate() {
+        let eventID = UUID()
+        var first = record(0).meta!
+        first.eventID = eventID; first.eventIndex = 1
+        var second = record(1).meta!
+        second.eventID = eventID; second.eventIndex = 2
+        let caption = ExportMetadata.eventCoordinateCaption([
+            .init(filename: "first.jpg", meta: first, folder: ""),
+            .init(filename: "second.jpg", meta: second, folder: "")
+        ], title: "Событие 2")
+        XCTAssertEqual(caption, "Событие 2. Координаты:\n55.777778, 67.777778")
+        XCTAssertFalse(caption.contains("56.777778"))
+    }
     func testLegacyUnknownAndInvalidCoordinatesDoNotInventGPS() {
         XCTAssertNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date())))
         XCTAssertNotNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date(), hasLocation: true)))

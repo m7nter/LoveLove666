@@ -2,7 +2,7 @@ import Foundation
 import CoreLocation
 import MapKit
 
-enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable {
+enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable {
     case playground, kindergarten, school, sports, police, security, administration, court, prosecutor, recruitment, military, government
     var id: String { rawValue }
     var title: String {
@@ -295,7 +295,35 @@ struct RestrictedPlacesSnapshot {
 struct CaptureZoneDecision: Equatable {
     let blocked: Bool
     let message: String
+    let nearby: [RestrictedPlaceSummary]
+    init(blocked: Bool, message: String, nearby: [RestrictedPlaceSummary] = []) {
+        self.blocked = blocked
+        self.message = message
+        self.nearby = nearby
+    }
     static let disabled = Self(blocked: false, message: "")
+}
+
+struct RestrictedPlaceSummary: Identifiable, Equatable {
+    let id: String
+    let kind: RestrictedPlaceKind
+    let name: String?
+    let distance: Double
+
+    var title: String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? kind.singular : trimmed
+    }
+
+    var displayTitle: String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? kind.singular : "\(kind.singular): \(trimmed)"
+    }
+
+    var distanceText: String {
+        if distance >= 1000 { return String(format: "%.1f км", distance / 1000) }
+        return "(Int(distance.rounded())) м"
+    }
 }
 
 enum RestrictedPlacesPolicy {
@@ -320,17 +348,30 @@ enum RestrictedPlacesPolicy {
         guard let location, let snapshot, snapshot.covers(location, settings: settings, now: now) else {
             return .init(blocked: true, message: unavailableReason + " Съёмка заблокирована.")
         }
-        let nearby = snapshot.index?.near(location, radius: settings.maximumRadius + location.horizontalAccuracy) ?? snapshot.places
-        let violations = nearby.filter { settings.includes($0.kind) }.compactMap { place -> (RestrictedPlace, Double, Bool)? in
+        let detailRadius = max(1000, settings.maximumRadius + location.horizontalAccuracy)
+        let nearby = snapshot.index?.near(location, radius: detailRadius) ?? snapshot.places
+        let candidates = nearby.filter { settings.includes($0.kind) }.compactMap { place -> (RestrictedPlace, Double)? in
             let distance = place.distance(from: location)
+            return (place, distance)
+        }.sorted { $0.1 < $1.1 }
+        var nearestByKind: [RestrictedPlaceKind: RestrictedPlaceSummary] = [:]
+        for (place, distance) in candidates where nearestByKind[place.kind] == nil {
+            nearestByKind[place.kind] = RestrictedPlaceSummary(id: place.id, kind: place.kind,
+                                                               name: place.name, distance: distance)
+        }
+        let summaries = nearestByKind.values.sorted { $0.distance < $1.distance }.prefix(3)
+        let nearest = Array(summaries)
+        let violations = candidates.compactMap { place, distance -> (RestrictedPlace, Double, Bool)? in
             let radius = settings.radius(for: place.kind)
             guard distance - location.horizontalAccuracy <= radius else { return nil }
             return (place, distance, distance > radius)
-        }.sorted { $0.1 < $1.1 }
-        guard !violations.isEmpty else { return .init(blocked: false, message: "Запретных зон по данным OpenStreetMap рядом не найдено") }
+        }
+        guard !violations.isEmpty else {
+            return .init(blocked: false, message: "Запретных зон по данным OpenStreetMap рядом не найдено", nearby: nearest)
+        }
         let reasons = violations.prefix(3).map { place, distance, uncertain in
             "\(place.kind.singular) — \(Int(distance.rounded())) м" + (uncertain ? " (с учётом погрешности GPS)" : "")
         }.joined(separator: "\n")
-        return .init(blocked: true, message: reasons + (violations.count > 3 ? "\nИ ещё \(violations.count - 3) зон" : ""))
+        return .init(blocked: true, message: reasons + (violations.count > 3 ? "\nИ ещё \(violations.count - 3) зон" : ""), nearby: nearest)
     }
 }

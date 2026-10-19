@@ -129,6 +129,29 @@ struct CameraScreen: View {
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(restrictedPlaces.decision.blocked ? Color.red.opacity(0.9) : Color.black.opacity(0.65))
                         .accessibilityIdentifier("camera.restrictedPlaces.reason")
+
+                    if !restrictedPlaces.nearbyPlaces.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Ближайшие зоны")
+                                .font(.caption2.weight(.bold))
+                                .foregroundColor(.white.opacity(0.72))
+                            ForEach(restrictedPlaces.nearbyPlaces) { place in
+                                HStack(spacing: 6) {
+                                    Text(place.displayTitle)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text(place.distanceText)
+                                        .foregroundColor(.white.opacity(0.78))
+                                }
+                                .font(.caption2.weight(.semibold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 7)
+                        .background(restrictedPlaces.decision.blocked ? Color.red.opacity(0.9) : Color.black.opacity(0.65))
+                    }
                 }
 
                 if isCaptureBlocked && eventDistanceDenialReason == nil && !(settings.restrictedPlaces.enabled && restrictedPlaces.decision.blocked) {
@@ -290,4 +313,3 @@ struct CameraScreen: View {
         NotificationCenter.default.post(name: .blackScreenChanged, object: enabled)
     }
 }
-

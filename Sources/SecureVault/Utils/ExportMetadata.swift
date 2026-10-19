@@ -60,6 +60,12 @@ enum ExportMetadata {
             }.joined(separator: "\n")
     }
 
+    static func eventCoordinateCaption(_ records: [ExportPhotoRecord], title: String) -> String {
+        let first = firstEventIndexes(records).sorted().first
+        let value = first.flatMap { coordinates(records[$0].meta) } ?? "нет данных"
+        return "\(title). Координаты:\n\(value)"
+    }
+
     static func archiveText(_ records: [ExportPhotoRecord], options: ArchiveMetadataOptions) -> String? {
         guard !options.isEmpty else { return nil }
         // This preset contains literally just numbered coordinates, without

@@ -27,7 +27,7 @@ final class RestrictedPlacesTests: XCTestCase {
     private func offset(_ location: CLLocation, northMeters: Double) -> CLLocation {
         let latitude = location.coordinate.latitude + northMeters / 111_132.0
         return CLLocation(coordinate: .init(latitude: latitude, longitude: location.coordinate.longitude),
-                          altitude: 0, horizontalAccuracy: 0, verticalAccuracy: 1, timestamp: now)
+                          altitude: 0, horizontalAccuracy: 1, verticalAccuracy: 1, timestamp: now)
     }
     private func parse(_ json: String) throws -> [RestrictedPlace] { try RestrictedPlacesParser.parse(Data(json.utf8)) }
 
@@ -156,6 +156,20 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(result.blocked)
         XCTAssertTrue(result.message.hasPrefix("Детская площадка —"))
         XCTAssertTrue(result.message.contains("Школа —"))
+    }
+
+    func testNearestSummaryContainsThreeClosestUniqueCategories() {
+        let places = [
+            point(0.0010, kind: .kindergarten),
+            point(0.0002, kind: .school),
+            point(0.0003, kind: .school),
+            point(0.0004, kind: .police),
+            point(0.0008, kind: .security)
+        ]
+        let result = decision(location(), places)
+        XCTAssertEqual(result.nearby.count, 3)
+        XCTAssertEqual(result.nearby.map(\.kind), [.school, .police, .security])
+        XCTAssertEqual(result.nearby.map(\.distance).sorted(), result.nearby.map(\.distance))
     }
 
     func testPublicOSMFixturesClassifyAndBlockAtTheirCoordinates() {

@@ -8,6 +8,7 @@ import UIKit
 final class RestrictedPlacesMonitor: ObservableObject {
     static let shared = RestrictedPlacesMonitor()
     @Published private(set) var decision = CaptureZoneDecision.disabled
+    @Published private(set) var nearbyPlaces: [RestrictedPlaceSummary] = []
     @Published private(set) var lastCheckSummary = "Проверка ещё не выполнялась"
     private var snapshot: RestrictedPlacesSnapshot?
     private var requestTask: Task<Void, Never>?
@@ -106,12 +107,16 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let covered = snapshot?.covers(location, settings: settings, now: Date()) == true
         let shouldRefresh = !covered || snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 480 || $0.center.distance(from: location) > 250 } == true
         guard shouldRefresh else { return }
-        let radius = min(1500, max(250, settings.maximumRadius + settings.accuracyLimit + 200))
+        // Keep enough context for the camera to show the three nearest unique
+        // categories, even when their protection radius is smaller (for
+        // example, a police point 800 m away from the user).
+        let radius = min(1500, max(1000, settings.maximumRadius + settings.accuracyLimit + 200))
         fetch(near: location, radius: radius, settings: settings)
     }
 
     private func publish(_ newValue: CaptureZoneDecision) {
         if decision != newValue { decision = newValue }
+        if nearbyPlaces != newValue.nearby { nearbyPlaces = newValue.nearby }
     }
 
     static func query(near location: CLLocation, radius: Double) -> String {
