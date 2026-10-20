@@ -29,13 +29,7 @@ struct SecureVaultApp: App {
         PhotoExporter.cleanupTemporaryExports()
         let lifecycle = VaultLifecycle.shared
         let inactivity = InactivityTimerManager.shared
-        #if DEBUG && targetEnvironment(simulator)
-        let isTestFixture = ProcessInfo.processInfo.arguments.contains("--test-legacy-lock")
-            || ProcessInfo.processInfo.arguments.contains("--test-calculator")
-        #else
-        let isTestFixture = false
-        #endif
-        if !isTestFixture, let limit = inactivity.activeLimitHours,
+        if !Self.runningTestFixture, let limit = inactivity.activeLimitHours,
            inactivity.shouldWipeData(limitHours: limit) {
             // Clear the marker before scheduling the reset so a failed or
             // interrupted erase cannot repeatedly trigger a second request.
@@ -123,6 +117,15 @@ struct SecureVaultApp: App {
                     }
                 case .active:
                     if lifecycle.blocksUI { lifecycle.resumePendingErase() }
+                    if !Self.runningTestFixture, !lifecycle.blocksUI,
+                       let limit = InactivityTimerManager.shared.activeLimitHours,
+                       InactivityTimerManager.shared.shouldWipeData(limitHours: limit) {
+                        InactivityTimerManager.shared.clearMarkers()
+                        lifecycle.erase(.reset)
+                        isUnlocked = false
+                    } else if isUnlocked {
+                        _ = InactivityTimerManager.shared.recordActivity()
+                    }
                     if !lifecycle.blocksUI, let bg = backgroundTime, !SettingsStore.shared.lockOnBackground {
                         let elapsed = Date().timeIntervalSince(bg)
                         let timeout = SettingsStore.shared.autoLockTimeout
@@ -156,6 +159,15 @@ struct SecureVaultApp: App {
     private func stopTimer() {
         inactivityTimer?.invalidate()
         inactivityTimer = nil
+    }
+
+    private static var runningTestFixture: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        return ProcessInfo.processInfo.arguments.contains("--test-legacy-lock")
+            || ProcessInfo.processInfo.arguments.contains("--test-calculator")
+        #else
+        return false
+        #endif
     }
 
     private func setupCrashLogging() {
