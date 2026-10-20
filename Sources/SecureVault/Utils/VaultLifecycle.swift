@@ -153,7 +153,8 @@ struct VaultEraseService {
         }
         if mode != .photos { defaults.removePersistentDomain(forName: defaultsDomain) }
         defaults.removeObject(forKey: "pendingCaptureEvent")
-        ProtectedPreferences.remove(forKey: "pendingCaptureEvent")
+        if mode != .photos { ProtectedPreferences.removeAll() }
+        else { ProtectedPreferences.remove(forKey: "pendingCaptureEvent") }
         defaults.set(generation, forKey: "vaultGeneration")
         if mode == .photos {
             try fm.createDirectory(at: directories.documents.appendingPathComponent("VaultPhotos"), withIntermediateDirectories: true)

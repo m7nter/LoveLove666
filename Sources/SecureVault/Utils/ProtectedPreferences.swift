@@ -7,6 +7,13 @@ import Foundation
 enum ProtectedPreferences {
     private static let prefix = "protected."
 
+    // Keys are deliberately kept in one place so a destructive reset cannot
+    // leave encrypted preference blobs behind after the vault key is removed.
+    private static let sensitiveKeys = [
+        "calculator.history.v2", "pendingCaptureEvent", "labelTemplates",
+        "selectedTemplate", "userAvatar"
+    ]
+
     private static func protectedKey(for key: String) -> String { prefix + key }
 
     static func data(forKey key: String) -> Data? {
@@ -43,6 +50,15 @@ enum ProtectedPreferences {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: key)
         defaults.removeObject(forKey: protectedKey(for: key))
+    }
+
+    static func removeAll() {
+        sensitiveKeys.forEach { remove(forKey: $0) }
+        // Remove any future protected entries from a previous version too.
+        let defaults = UserDefaults.standard
+        defaults.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix(prefix) }
+            .forEach { defaults.removeObject(forKey: $0) }
     }
 
     static func string(forKey key: String) -> String? {
