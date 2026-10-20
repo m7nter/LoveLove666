@@ -198,7 +198,7 @@ final class RestrictedPlacesTests: XCTestCase {
              ["amenity": "police", "name": "Тестовый пункт полиции"], .police),
             ("fixture-security", "Тестовый объект безопасности",
              .init(lat: 54.0749374, lon: 34.2971248),
-             ["amenity": "police", "name": "Тестовый объект безопасности"], .security),
+             ["office": "government", "name": "Тестовый объект безопасности"], .security),
             ("fixture-administration", "Тестовая администрация",
              .init(lat: 55.5945006, lon: 39.6695218),
              ["amenity": "townhall", "name": "Тестовая администрация"], .administration)

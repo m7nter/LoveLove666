@@ -327,7 +327,10 @@ struct RestrictedPlaceSummary: Identifiable, Equatable {
     }
 
     var distanceText: String {
-        if distance >= 1000 { return String(format: "%.1f км", distance / 1000) }
+        if distance >= 1000 {
+            let kilometres = floor(distance / 1000 * 10 + 0.5) / 10
+            return String(format: "%.1f км", kilometres)
+        }
         return "\(Int(distance.rounded())) м"
     }
 }

@@ -57,7 +57,8 @@ final class InactivityTimerManager: ObservableObject {
     /// cannot be hidden by immediately opening the app.
     @discardableResult
     func recordActivity() -> Bool {
-        if let limit = activeLimitHours, shouldWipeData(limitHours: limit) { return false }
+        guard let limit = activeLimitHours else { return true }
+        if shouldWipeData(limitHours: limit) { return false }
         let ok = writeActivityMarker()
         if !ok { lastError = "Не удалось обновить контроль времени в Keychain." }
         return ok
@@ -87,7 +88,8 @@ final class InactivityTimerManager: ObservableObject {
     static func shouldWipeData(limitHours: Int, savedWall: TimeInterval,
                                savedUptime: TimeInterval, currentWall: TimeInterval,
                                currentUptime: TimeInterval) -> Bool {
-        guard limitHours > 0, savedWall.isFinite, savedUptime.isFinite,
+        guard limitHours > 0 else { return false }
+        guard savedWall.isFinite, savedUptime.isFinite,
               currentWall.isFinite, currentUptime.isFinite,
               savedWall >= 0, savedUptime >= 0 else { return true }
         let wallDelta = currentWall - savedWall

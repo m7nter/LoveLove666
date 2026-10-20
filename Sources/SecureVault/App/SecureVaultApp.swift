@@ -29,7 +29,13 @@ struct SecureVaultApp: App {
         PhotoExporter.cleanupTemporaryExports()
         let lifecycle = VaultLifecycle.shared
         let inactivity = InactivityTimerManager.shared
-        if let limit = inactivity.activeLimitHours,
+        #if DEBUG && targetEnvironment(simulator)
+        let isTestFixture = ProcessInfo.processInfo.arguments.contains("--test-legacy-lock")
+            || ProcessInfo.processInfo.arguments.contains("--test-calculator")
+        #else
+        let isTestFixture = false
+        #endif
+        if !isTestFixture, let limit = inactivity.activeLimitHours,
            inactivity.shouldWipeData(limitHours: limit) {
             // Clear the marker before scheduling the reset so a failed or
             // interrupted erase cannot repeatedly trigger a second request.
