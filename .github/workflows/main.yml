@@ -147,8 +147,11 @@ jobs:
             build 2>&1 | tee "$RUNNER_TEMP/release-build.log"
           build_status=${PIPESTATUS[0]}
           if [ "$build_status" -ne 0 ]; then
-            grep -E "error:|fatal error:|BUILD FAILED" "$RUNNER_TEMP/release-build.log" | tail -20 | while IFS= read -r line; do
+            grep -E "error:|fatal error:|BUILD FAILED|SwiftCompile|CompileSwift|linker command failed" "$RUNNER_TEMP/release-build.log" | tail -40 | while IFS= read -r line; do
               echo "::error title=Xcode release diagnostic::$line"
+            done
+            tail -40 "$RUNNER_TEMP/release-build.log" | while IFS= read -r line; do
+              echo "::error title=Xcode release log::$line"
             done
           fi
           exit "$build_status"
