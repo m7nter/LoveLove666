@@ -211,5 +211,6 @@ class SettingsStore: ObservableObject {
         distanceTrackingEnabled = false; minDistanceThreshold = 10
         volumeButtonCaptureEnabled = false; exportAsZip = true; clusterMapPins = true
         actionButtonMode = .off
+        InactivityTimerManager.shared.disable()
     }
 }

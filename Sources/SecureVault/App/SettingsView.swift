@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var store = SettingsStore.shared
+    @ObservedObject private var inactivity = InactivityTimerManager.shared
     @Environment(\.dismiss) var dismiss
     @State private var showPicker = false
     @State private var showChangeMain = false
@@ -11,6 +12,8 @@ struct SettingsView: View {
     @State private var showGuide = false
     @State private var pendingActionMode: ActionButtonMode = .off
     @State private var newMode = ""
+    @State private var showInactivityConfirmation = false
+    @State private var pendingInactivityHours = 0
 
     var body: some View {
         NavigationView {
@@ -318,6 +321,29 @@ struct SettingsView: View {
                         Button("Изменить пароль-камикадзе") { showChangeKamikaze = true }
                             .foregroundColor(.red)
                     }
+
+                }
+
+                Section("Автоматическое уничтожение") {
+                    Picker("При неактивности", selection: Binding(
+                        get: { inactivity.limitHours },
+                        set: { value in
+                            if value == 0 { inactivity.disable() }
+                            else {
+                                pendingInactivityHours = value
+                                showInactivityConfirmation = true
+                            }
+                        })) {
+                        Text("Выключено").tag(0)
+                        Text("24 часа").tag(24)
+                        Text("48 часов").tag(48)
+                        Text("72 часа").tag(72)
+                        Text("7 дней").tag(168)
+                    }
+                    .accessibilityIdentifier("settings.inactivityTimer")
+                    Text("Если приложение не будет запущено и разблокировано до истечения интервала, хранилище будет полностью уничтожено. Откат системного времени также считается попыткой обхода и может немедленно стереть данные.")
+                        .font(.caption)
+                        .foregroundColor(.red)
                 }
 
                 Section("Подсказка") {
@@ -361,6 +387,11 @@ struct SettingsView: View {
                 guard store.securityError == nil else { return false }
                 store.kamikazeCodeEnabled = true
                 return true
+            }
+        }
+        .sheet(isPresented: $showInactivityConfirmation) {
+            InactivityConfirmationView(hours: pendingInactivityHours) {
+                _ = inactivity.activate(hours: pendingInactivityHours)
             }
         }
         .alert("Настроить Action Button?", isPresented: $showActionButtonWarning) {

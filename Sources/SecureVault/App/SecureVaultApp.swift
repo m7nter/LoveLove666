@@ -28,6 +28,14 @@ struct SecureVaultApp: App {
         setupCrashLogging()
         PhotoExporter.cleanupTemporaryExports()
         let lifecycle = VaultLifecycle.shared
+        let inactivity = InactivityTimerManager.shared
+        if let limit = inactivity.activeLimitHours,
+           inactivity.shouldWipeData(limitHours: limit) {
+            // Clear the marker before scheduling the reset so a failed or
+            // interrupted erase cannot repeatedly trigger a second request.
+            inactivity.clearMarkers()
+            lifecycle.erase(.reset)
+        }
         if !lifecycle.blocksUI {
             _ = SettingsStore.shared
             DispatchQueue.global(qos: .utility).async {
@@ -283,6 +291,7 @@ struct RootView: View {
         #endif
         needsSetup = false; showAccess = false
         isUnlocked = true; isCameraOnly = false
+        _ = InactivityTimerManager.shared.recordActivity()
         onStartTimer()
         if wasSetup && welcomeGuidePromptVersion == 0 && !isUITestFixture {
             showWelcomePrompt = true
