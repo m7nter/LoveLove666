@@ -161,6 +161,13 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(result.message.contains("Школа —"))
     }
 
+    func testNearbyDistanceTextUsesMeasuredDistance() {
+        XCTAssertEqual(RestrictedPlaceSummary(id: "fixture", kind: .playground,
+                                               name: nil, distance: 36).distanceText, "36 м")
+        XCTAssertEqual(RestrictedPlaceSummary(id: "fixture", kind: .playground,
+                                               name: nil, distance: 1_250).distanceText, "1.3 км")
+    }
+
     func testNearestSummaryContainsThreeClosestUniqueCategories() {
         let places = [
             point(0.0010, kind: .kindergarten),
