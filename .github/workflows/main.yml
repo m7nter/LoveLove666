@@ -83,8 +83,11 @@ jobs:
               "-derivedDataPath", os.path.join(os.environ["GITHUB_WORKSPACE"], "test_build"),
               "-resultBundlePath", os.path.join(os.environ["GITHUB_WORKSPACE"], "TestResults.xcresult"),
           ]
-          process = subprocess.Popen(command)
+          process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, bufsize=1)
           try:
+              for line in process.stdout:
+                  print(line, end='', flush=True)
               status = process.wait(timeout=1200)
           except subprocess.TimeoutExpired:
               print("Simulator tests exceeded 20 minutes; continuing to Release build.", flush=True)
@@ -131,6 +134,7 @@ jobs:
       - name: Build app
         if: always()
         run: |
+          set -o pipefail
           xcodebuild \
             -project SecureVault.xcodeproj \
             -scheme SecureVault \
@@ -143,7 +147,12 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             PROVISIONING_PROFILE_SPECIFIER="" \
             -derivedDataPath "$GITHUB_WORKSPACE/build" \
-            build
+            build 2>&1 | tee "$RUNNER_TEMP/release-build.log"
+          build_status=${PIPESTATUS[0]}
+          if [ "$build_status" -ne 0 ]; then
+            grep -E "error:|fatal error:|BUILD FAILED" "$RUNNER_TEMP/release-build.log" | tail -20 || true
+          fi
+          exit "$build_status"
 
       - name: Package into IPA
         if: always()
