@@ -82,7 +82,7 @@ packages:
     exactVersion: 6.31.0
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
-    exactVersion: 0.9.19
+    from: 0.9.19
 
 schemes:
   SecureVault:
