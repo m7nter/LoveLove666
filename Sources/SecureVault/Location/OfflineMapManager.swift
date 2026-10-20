@@ -514,7 +514,7 @@ final class OfflineMapManager: ObservableObject {
 
     private static func placeQuery(for bounds: OfflineRegionBounds) -> String {
         let filters = ["[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]", "[building~\"^(school|kindergarten)$\"]",
-                       "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
+                       "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[playground]", "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
         let selections = filters.map { "nwr(\(bounds.overpass))\($0);" }.joined()
         return "[out:json][timeout:90][maxsize:33554432];(\(selections));out tags geom;"
     }

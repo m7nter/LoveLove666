@@ -52,7 +52,13 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
         if tags["amenity"] == "townhall" || tags["government"] == "administrative" || matches("администраци|мэрия") { return .administration }
         if tags["amenity"] == "kindergarten" || tags["building"] == "kindergarten" { return .kindergarten }
         if tags["amenity"] == "school" || tags["building"] == "school" { return .school }
-        if tags["leisure"] == "playground" { return .playground }
+        // OSM uses `leisure=playground` for the usual area, but imported
+        // Russian datasets also contain playground nodes/ways with a
+        // `playground=*` key and Russian names without the leisure tag.
+        // Treat those as the same protected category so a mapped fence is not
+        // silently missed just because the mapper used the alternative tag.
+        if tags["leisure"] == "playground" || tags["playground"] != nil
+            || matches("детск.*площадк|игров.*площадк|playground") { return .playground }
         if ["pitch", "sports_centre", "stadium", "fitness_station", "track"].contains(tags["leisure"] ?? "") { return .sports }
         if tags["office"] == "government" || tags["government"] != nil { return .government }
         return nil

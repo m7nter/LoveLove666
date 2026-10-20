@@ -127,6 +127,8 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertEqual(RestrictedPlaceKind.classify(["landuse":"military"]), .military)
         XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","government":"tax"]), .government)
         XCTAssertEqual(RestrictedPlaceKind.classify(["leisure":"pitch"]), .sports)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["playground":"slide"]), .playground)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["name":"Детская площадка во дворе"]), .playground)
         XCTAssertNil(RestrictedPlaceKind.classify(["amenity":"cafe"]))
     }
     func testDefaultDistancesPersistenceAndReset() throws {
