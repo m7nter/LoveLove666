@@ -151,6 +151,7 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertFalse(query.contains("pivot.enclosing"))
         XCTAssertTrue(query.contains("out tags geom"))
         XCTAssertFalse(query.contains("out center"))
+        XCTAssertTrue(query.contains("[playground]"))
     }
 
     func testClosestReasonsAreShownFirst() {

@@ -131,7 +131,10 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }
         func includes(_ kind: RestrictedPlaceKind) -> Bool { enabled?.contains(kind) ?? true }
         var filters: [String] = []
-        if includes(.playground) { filters += ["[leisure=playground]", "[playground]"] }
+        if includes(.playground) {
+            filters += ["[leisure=playground]", "[playground]",
+                        "[name~\"детск.*площадк|игров.*площадк\",i]"]
+        }
         if includes(.kindergarten) { filters += ["[amenity=kindergarten]", "[building=kindergarten]"] }
         if includes(.school) { filters += ["[amenity=school]", "[building=school]"] }
         if includes(.sports) { filters.append("[leisure~\"^(pitch|sports_centre|stadium|fitness_station|track)$\"]") }
