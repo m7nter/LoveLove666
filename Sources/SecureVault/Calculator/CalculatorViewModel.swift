@@ -218,7 +218,7 @@ final class CalculatorViewModel: ObservableObject {
             return records
         }
         let legacy = UserDefaults.standard.stringArray(forKey: "calculator.history") ?? []
-        let records = legacy.compactMap { value in
+        let records: [HistoryRecord] = legacy.compactMap { value -> HistoryRecord? in
             let parts = value.components(separatedBy: " = ")
             guard parts.count >= 2 else { return nil }
             return HistoryRecord(id: UUID(), expression: parts.dropLast().joined(separator: " = "),
