@@ -83,26 +83,14 @@ jobs:
               "-derivedDataPath", os.path.join(os.environ["GITHUB_WORKSPACE"], "test_build"),
               "-resultBundlePath", os.path.join(os.environ["GITHUB_WORKSPACE"], "TestResults.xcresult"),
           ]
-          log_path = os.path.join(os.environ["RUNNER_TEMP"], "test.log")
-          process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True)
+          process = subprocess.Popen(command)
           try:
-              output, _ = process.communicate(timeout=1200)
-              status = process.returncode
+              status = process.wait(timeout=1200)
           except subprocess.TimeoutExpired:
               print("Simulator tests exceeded 20 minutes; continuing to Release build.", flush=True)
               process.kill()
-              output, _ = process.communicate()
-              status = 124
-          with open(log_path, "w", encoding="utf-8") as log:
-              log.write(output)
-          print(output, end='', flush=True)
-          if status != 0:
-              with open(log_path, encoding="utf-8", errors="replace") as log:
-                  diagnostics = [line.strip() for line in log
-                                 if "error:" in line.lower() or "fatal error:" in line.lower()]
-              for line in diagnostics[-20:]:
-                  print("::error title=Xcode test diagnostic::" + line[:900], flush=True)
+              process.wait()
+              raise SystemExit(124)
           raise SystemExit(status)
           PY
 
