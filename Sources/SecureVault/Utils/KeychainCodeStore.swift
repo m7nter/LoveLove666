@@ -19,7 +19,8 @@ enum KeychainCodeStore {
     private static func hasMigrationMarker(_ account: String) -> Bool {
         var request = query(migrationAccount(account))
         request[kSecMatchLimit as String] = kSecMatchLimitOne
-        return SecItemCopyMatching(request as CFDictionary, nil) == errSecSuccess
+        var result: CFTypeRef?
+        return SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess
     }
 
     private static func markMigrated(_ account: String) throws {
