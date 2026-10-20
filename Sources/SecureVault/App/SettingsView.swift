@@ -325,20 +325,28 @@ struct SettingsView: View {
                 }
 
                 Section("Автоматическое уничтожение") {
-                    Picker("При неактивности", selection: Binding(
-                        get: { inactivity.limitHours },
+                    Toggle("Включить Dead Man's Switch", isOn: Binding(
+                        get: { inactivity.isEnabled },
                         set: { value in
-                            if value == 0 { inactivity.disable() }
+                            if !value { inactivity.disable() }
                             else {
-                                pendingInactivityHours = value
+                                pendingInactivityHours = inactivity.limitHours > 0 ? inactivity.limitHours : 24
                                 showInactivityConfirmation = true
                             }
-                        })) {
-                        Text("Выключено").tag(0)
-                        Text("24 часа").tag(24)
-                        Text("48 часов").tag(48)
-                        Text("72 часа").tag(72)
-                        Text("7 дней").tag(168)
+                        }))
+                        .tint(.red)
+                    if inactivity.isEnabled {
+                        Picker("При неактивности", selection: Binding(
+                            get: { inactivity.limitHours },
+                            set: { value in
+                                pendingInactivityHours = value
+                                showInactivityConfirmation = true
+                            })) {
+                            Text("24 часа").tag(24)
+                            Text("48 часов").tag(48)
+                            Text("72 часа").tag(72)
+                            Text("7 дней").tag(168)
+                        }
                     }
                     .accessibilityIdentifier("settings.inactivityTimer")
                     Text("Если приложение не будет запущено и разблокировано до истечения интервала, хранилище будет полностью уничтожено. Откат системного времени также считается попыткой обхода и может немедленно стереть данные.")
