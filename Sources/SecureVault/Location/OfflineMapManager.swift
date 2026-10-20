@@ -519,7 +519,7 @@ final class OfflineMapManager: ObservableObject {
         return "[out:json][timeout:90][maxsize:33554432];(\(selections));out tags geom;"
     }
 
-    private func fetchNextPlaceTile() {
+    private func fetchNextPlaceTile(usingGETFallback: Bool = false) {
         guard let region = placeRegion,
               placeTileIndex < placeTiles.count,
               let generation = requestGeneration else {
@@ -533,16 +533,28 @@ final class OfflineMapManager: ObservableObject {
         placePhase = "Запрашиваем объекты"
         updatePlacesProgress()
         appendPlacesActivity("\(placeCurrentTileLabel) → \(placeCurrentServerLabel)")
-        var r = URLRequest(url: Self.placeEndpoints[placeEndpointIndex])
-        r.httpMethod = "POST"
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
         let query = Self.placeQuery(for: bounds)
-        // All endpoints receive the same form-encoded request. The first
-        // endpoint previously used plain text, which is rejected by some
-        // mobile networks and inflated the visible failed-cell count.
-        r.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        r.httpBody = "data=\(encoded)".data(using: .utf8)
+        let endpoint = Self.placeEndpoints[placeEndpointIndex]
+        var r: URLRequest
+        if usingGETFallback {
+            guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { return }
+            components.queryItems = [URLQueryItem(name: "data", value: query)]
+            guard let url = components.url else { return }
+            r = URLRequest(url: url)
+            r.httpMethod = "GET"
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            r.timeoutInterval = 90
+            appendPlacesActivity("POST не принят, пробуем GET на \(placeCurrentServerLabel)")
+        } else {
+            r = URLRequest(url: endpoint)
+            r.httpMethod = "POST"
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            // Form encoding is accepted by all configured Overpass mirrors.
+            r.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            r.httpBody = "data=\(encoded)".data(using: .utf8)
+            r.timeoutInterval = 90
+        }
         request = session.dataTask(with: r) { [weak self] data, response, error in
             let result: Result<[RestrictedPlace], Error> = Result {
                 guard error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
@@ -568,6 +580,12 @@ final class OfflineMapManager: ObservableObject {
                     self.savePlacesCheckpoint()
                     self.fetchNextPlaceTile()
                 case .failure:
+                    if !usingGETFallback {
+                        self.placePhase = "Повторяем GET-запрос"
+                        self.updatePlacesProgress()
+                        self.fetchNextPlaceTile(usingGETFallback: true)
+                        return
+                    }
                     self.request = nil
                     if self.placeEndpointIndex + 1 < Self.placeEndpoints.count {
                         self.placeEndpointIndex += 1
