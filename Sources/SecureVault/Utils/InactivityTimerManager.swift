@@ -140,17 +140,17 @@ final class InactivityTimerManager: ObservableObject {
         var update = [String: Any]()
         update[kSecValueData as String] = data
         update[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemUpdate(query(account) as CFDictionary, update as CFDictionary)
+        let status = SecItemUpdate(query(account: account) as CFDictionary, update as CFDictionary)
         if status == errSecSuccess { return true }
         guard status == errSecItemNotFound else { return false }
-        var insert = query(account)
+        var insert = query(account: account)
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 
     private func readKeychain(_ account: String) -> String? {
-        var request = query(account)
+        var request = query(account: account)
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -160,7 +160,7 @@ final class InactivityTimerManager: ObservableObject {
     }
 
     private func readKeychainDouble(account: String) -> Double? { readKeychain(account).flatMap(Double.init) }
-    private func deleteKeychain(account: String) { _ = SecItemDelete(query(account) as CFDictionary) }
+    private func deleteKeychain(account: String) { _ = SecItemDelete(query(account: account) as CFDictionary) }
 
     private static func readKeychainInt(service: String, account: String) -> Int? {
         var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
