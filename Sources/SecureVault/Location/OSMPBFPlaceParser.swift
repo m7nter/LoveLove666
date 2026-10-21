@@ -2,7 +2,7 @@ import Foundation
 import Compression
 
 /// Small dependency-free reader for the OSM PBF primitives used by the
-/// regional Awesome Coord databases. It intentionally keeps only tagged
+/// regional OSM databases. It intentionally keeps only tagged
 /// nodes, ways and relations and converts them to the app's RestrictedPlace
 /// geometry, so the downloaded PBF never becomes part of the live camera path.
 enum OSMPBFPlaceParser {

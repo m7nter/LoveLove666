@@ -174,8 +174,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
         if filters.isEmpty { filters = ["[amenity=__disabled__]"] }
         filters = Array(Set(filters)).sorted()
         let around = "(around:\(Int(ceil(radius))),\(lat),\(lon))"
-        // Match the proven desktop Awesome Coord request: bounded nearby
-        // objects with full geometry. Keeping this query simple is critical on
+        // Keep the request bounded to nearby objects with full geometry.
+        // Keeping this query simple is critical on
         // mobile Overpass servers; the previous is_in/pivot branch could make
         // an otherwise healthy server reject the entire request.
         let selections = filters.map { "nwr\(around)\($0);" }.joined(separator: "\n")
