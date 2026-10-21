@@ -208,7 +208,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, http.statusCode == 200,
                data.count <= 16_777_216 {
-                return try RestrictedPlacesParser.parse(data)
+                return uniquePlaces(try RestrictedPlacesParser.parse(data))
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -235,8 +235,13 @@ final class RestrictedPlacesMonitor: ObservableObject {
             throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "Overpass HTTP \(status)"])
         }
         let parsed = try RestrictedPlacesParser.parse(data)
+        return uniquePlaces(parsed)
+    }
+
+    private static func uniquePlaces(_ places: [RestrictedPlace]) -> [RestrictedPlace] {
         var unique: [String: RestrictedPlace] = [:]
-        for place in parsed { unique[place.id] = place }
+        unique.reserveCapacity(places.count)
+        for place in places { unique[place.id] = place }
         return Array(unique.values)
     }
 
