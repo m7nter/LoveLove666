@@ -5,28 +5,92 @@ struct WelcomeGuidePromptView: View {
     let onExperienced: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "book.closed.fill")
-                .font(.system(size: 42))
-                .foregroundStyle(.orange)
-            Text("Добро пожаловать")
-                .font(.title2.bold())
-            Text("Хотите быстро ознакомиться с возможностями приложения и правилами работы с хранилищем?")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-            VStack(spacing: 12) {
-                Button("Я не знаю как пользоваться") { onGuide() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .frame(maxWidth: .infinity)
-                Button("Я уже опытный") { onExperienced() }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity)
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [.orange, .yellow.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 82, height: 82)
+                    .shadow(color: .orange.opacity(0.35), radius: 18, y: 8)
+                Image(systemName: "book.closed.fill")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.black.opacity(0.82))
             }
+            VStack(spacing: 9) {
+                Text("Добро пожаловать")
+                    .font(.system(size: 29, weight: .bold, design: .rounded))
+                Text("Выберите удобный старт. Руководство можно открыть позже в настройках.")
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.68))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 12) {
+                Button(action: onGuide) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "book.fill")
+                            .font(.title3.weight(.bold))
+                            .frame(width: 42, height: 42)
+                            .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Я не знаю, как пользоваться")
+                                .font(.headline)
+                            Text("Открыть короткое руководство")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.78))
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, minHeight: 72)
+                    .background(LinearGradient(colors: [.orange, .orange.opacity(0.78)], startPoint: .leading, endPoint: .trailing), in: RoundedRectangle(cornerRadius: 18))
+                    .shadow(color: .orange.opacity(0.25), radius: 14, y: 7)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("welcome.openGuide")
+
+                Button(action: onExperienced) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.orange)
+                            .frame(width: 42, height: 42)
+                            .background(.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Я уже опытный")
+                                .font(.headline)
+                            Text("Перейти к калькулятору")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.58))
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, minHeight: 72)
+                    .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("welcome.skipGuide")
+            }
+            Text("Оба варианта открывают приложение сразу; выбор можно изменить в любой момент.")
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.45))
+                .padding(.horizontal, 12)
         }
-        .padding(28)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 34)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.ignoresSafeArea())
+        .background(
+            LinearGradient(colors: [Color(red: 0.08, green: 0.07, blue: 0.06), .black], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea())
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(true)

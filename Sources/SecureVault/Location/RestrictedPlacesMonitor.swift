@@ -276,7 +276,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         // endpoint fails, so a slow mirror cannot hold the camera hostage.
         func firstValid(from endpoints: ArraySlice<URL>) async throws -> OverpassResponse {
             guard !endpoints.isEmpty else { throw URLError(.cannotLoadFromNetwork) }
-            return try await withThrowingTaskGroup(of: [RestrictedPlace].self) { group in
+            return try await withThrowingTaskGroup(of: OverpassResponse.self) { group in
                 for endpoint in endpoints {
                     group.addTask {
                         try await requestPlaces(session: session, endpoint: endpoint, query: query)
@@ -312,7 +312,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let session = self.session
         let endpoints = endpointOrder
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
-        lastCheckSummary = "Выполняем запрос к OpenStreetMap через (endpoints.count) зеркал…"
+        lastCheckSummary = "Выполняем запрос к OpenStreetMap через \(endpoints.count) зеркал…"
         publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
         let startedAt = Date()
         requestTask = Task { [weak self] in
