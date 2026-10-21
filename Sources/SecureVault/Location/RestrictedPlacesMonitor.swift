@@ -131,19 +131,42 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }
         func includes(_ kind: RestrictedPlaceKind) -> Bool { enabled?.contains(kind) ?? true }
         var filters: [String] = []
+
+        // Group values by tag so Overpass scans the same radius fewer times.
+        // This keeps the returned objects unchanged while reducing latency on
+        // mobile mirrors, especially for a city-sized 1 km query.
+        func addRegex(_ key: String, _ values: [String]) {
+            guard !values.isEmpty else { return }
+            let escaped = values.map { NSRegularExpression.escapedPattern(for: $0) }
+                .joined(separator: "|")
+            filters.append("[\(key)~\"^(\(escaped))$\"]")
+        }
         if includes(.playground) {
             filters += ["[leisure=playground]", "[playground]",
                         "[name~\"детск.*площадк|игров.*площадк\",i]"]
         }
-        if includes(.kindergarten) { filters += ["[amenity=kindergarten]", "[building=kindergarten]"] }
-        if includes(.school) { filters += ["[amenity=school]", "[building=school]"] }
+        var amenities: [String] = []
+        if includes(.kindergarten) { amenities.append("kindergarten") }
+        if includes(.school) { amenities.append("school") }
+        if includes(.police) { amenities.append("police") }
+        if includes(.administration) { amenities.append("townhall") }
+        if includes(.court) { amenities.append("courthouse") }
+        addRegex("amenity", amenities)
+        var buildings: [String] = []
+        if includes(.kindergarten) { buildings.append("kindergarten") }
+        if includes(.school) { buildings.append("school") }
+        addRegex("building", buildings)
         if includes(.sports) { filters.append("[leisure~\"^(pitch|sports_centre|stadium|fitness_station|track)$\"]") }
-        if includes(.police) { filters += ["[amenity=police]", "[police]", "[government=police]"] }
-        if includes(.security) { filters.append("[government~\"^(security|intelligence)$\"]") }
-        if includes(.administration) { filters += ["[amenity=townhall]", "[government=administrative]"] }
-        if includes(.court) { filters += ["[amenity=courthouse]", "[government=court]"] }
-        if includes(.prosecutor) { filters.append("[government=prosecutor]") }
-        if includes(.recruitment) { filters.append("[government=recruitment]") }
+        if includes(.police) { filters += ["[police]", "[government=police]"] }
+        var government: [String] = []
+        if includes(.security) { government += ["security", "intelligence"] }
+        if includes(.administration) { government.append("administrative") }
+        if includes(.court) { government.append("court") }
+        if includes(.prosecutor) { government.append("prosecutor") }
+        if includes(.recruitment) { government.append("recruitment") }
+        if includes(.military) { government.append("military") }
+        if includes(.police) { government.append("police") }
+        addRegex("government", government)
         if includes(.military) { filters += ["[landuse=military]", "[military]"] }
         let governmentKind: [RestrictedPlaceKind] = [.police, .security, .administration, .court, .prosecutor, .recruitment, .military, .government]
         if governmentKind.contains(where: { includes($0) }) { filters += ["[office=government]", "[government]"] }
