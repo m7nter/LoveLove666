@@ -11,7 +11,6 @@ struct GalleryView: View {
     @State private var sharingItems: [Any] = []
     @State private var showShareSheet = false
     @State private var sharingText = ""
-    @State private var sequentialEventPlan: EventSharePlan?
     @State private var eventPath: [String] = []
     @State private var isExporting = false
     @State private var isSelecting = false
@@ -231,11 +230,6 @@ struct GalleryView: View {
             if sharingText.isEmpty { ShareSheet(items: sharingItems) }
             else { CoordinateSharePreview(items: sharingItems, text: sharingText) }
         }
-        .sheet(item: $sequentialEventPlan, onDismiss: {
-            PhotoExporter.cleanupTemporaryExports()
-        }) { plan in
-            SequentialEventShareView(plan: plan)
-        }
         .alert(
             "Удалить \(selectedURLs.count) фото?",
             isPresented: $showDeleteConfirm
@@ -288,11 +282,6 @@ struct GalleryView: View {
             return lhs == rhs ? $0.path < $1.path : lhs < rhs
         }
 
-        if !settings.exportAsZip && coordinates {
-            prepareSequentialEventShare(ordered: ordered, notes: notes, numbering: numbering)
-            return
-        }
-
         guard SettingsStore.shared.exportAsZip else {
             isExporting = true
             DispatchQueue.global(qos: .userInitiated).async {
@@ -311,11 +300,7 @@ struct GalleryView: View {
                     switch result {
                     case .success(let payload):
                         sharingText = payload.1
-                        // Keep all event photos contiguous and provide them as
-                        // image items so Telegram can form one album instead
-                        // of treating each temporary file URL as a message.
-                        sharingItems = PhotoExporter.shareItems(of: payload.0)
-                            + ExportMetadata.messageParts(payload.1).map { $0 as Any }
+                        sharingItems = ExportMetadata.messageParts(payload.1).map { $0 as Any } + payload.0.map { $0 as Any }
                         showShareSheet = true
                     case .failure(let error): operationError = "Экспорт не выполнен: \(error.localizedDescription)"
                     }
@@ -337,58 +322,6 @@ struct GalleryView: View {
                     showShareSheet = true
                 } else { operationError = "Не удалось создать архив. Проверьте свободное место." }
             }
-        }
-    }
-
-    private func prepareSequentialEventShare(ordered: [URL], notes: Bool, numbering: String?) {
-        let groups = eventGroups(containing: ordered)
-        guard !groups.isEmpty else { return }
-        isExporting = true
-        let generation = accessGeneration
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { () -> EventSharePlan in
-                var payloads: [EventShareItem] = []
-                for group in groups {
-                    let files = try PhotoExporter.copies(of: group.urls, includeNotes: notes,
-                                                         generation: generation, numberingMode: numbering)
-                    let records = group.urls.map {
-                        ExportPhotoRecord(filename: $0.lastPathComponent,
-                                          meta: FileStorageManager.shared.loadMeta(for: $0), folder: "")
-                    }
-                    let caption = ExportMetadata.eventCoordinateCaption(records, title: group.title)
-                    payloads.append(EventShareItem(id: group.id, title: group.title, files: files, caption: caption))
-                }
-                let records = ordered.map {
-                    ExportPhotoRecord(filename: $0.lastPathComponent,
-                                      meta: FileStorageManager.shared.loadMeta(for: $0), folder: "")
-                }
-                let final = groups.count > 1 ? ExportMetadata.coordinateMessage(records) : nil
-                return EventSharePlan(events: payloads, finalMessage: final)
-            }
-            DispatchQueue.main.async {
-                isExporting = false
-                guard VaultGate.shared.generation == generation else { return }
-                switch result {
-                case .success(let plan): sequentialEventPlan = plan
-                case .failure(let error):
-                    PhotoExporter.cleanupTemporaryExports()
-                    operationError = "Экспорт событий не выполнен: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
-    private func eventGroups(containing ordered: [URL]) -> [PhotoEventGroup] {
-        let wanted = Set(ordered)
-        let order = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { ($1, $0) })
-        return groupedPhotos.compactMap { group in
-            let urls = group.urls.filter { wanted.contains($0) }.sorted {
-                (order[$0] ?? Int.max) < (order[$1] ?? Int.max)
-            }
-            guard !urls.isEmpty else { return nil }
-            return PhotoEventGroup(id: group.id, title: group.title, urls: urls, date: group.date)
-        }.sorted {
-            (order[$0.urls.first!] ?? Int.max) < (order[$1.urls.first!] ?? Int.max)
         }
     }
 

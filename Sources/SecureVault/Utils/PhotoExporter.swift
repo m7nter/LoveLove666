@@ -113,28 +113,4 @@ enum PhotoExporter {
             return try VaultGate.shared.withAccess(generation: generation) { result }
         } catch { try? fm.removeItem(at: directory); throw error }
     }
-
-    /// UIActivityViewController groups image providers more reliably than a
-    /// list of file URLs in Telegram and other photo share extensions. The
-    /// provider loads each temporary JPEG off the main thread and falls back
-    /// to the URL for activities that explicitly require a file.
-    static func shareItems(of urls: [URL]) -> [Any] {
-        urls.map { PhotoShareItemProvider(fileURL: $0) as Any }
-    }
-}
-
-final class PhotoShareItemProvider: UIActivityItemProvider {
-    private let fileURL: URL
-
-    init(fileURL: URL) {
-        self.fileURL = fileURL
-        super.init(placeholderItem: UIImage(systemName: "photo") ?? UIImage())
-    }
-
-    override var item: Any {
-        guard let data = try? Data(contentsOf: fileURL), let image = UIImage(data: data) else {
-            return fileURL
-        }
-        return image
-    }
 }
