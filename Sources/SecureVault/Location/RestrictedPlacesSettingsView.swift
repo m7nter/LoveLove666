@@ -28,11 +28,16 @@ struct RestrictedPlacesSettingsView: View {
                 }
             }
             Section("Состояние OSM") {
+                Label(
+                    monitor.decision.blocked ? "Съёмка сейчас заблокирована" : "Съёмка разрешена текущей проверкой",
+                    systemImage: monitor.decision.blocked ? "lock.fill" : "checkmark.shield.fill")
+                    .font(.subheadline)
+                    .foregroundColor(monitor.decision.blocked ? .orange : .green)
                 Text(monitor.lastCheckSummary)
                     .font(.caption).foregroundColor(.secondary)
                 Button("Проверить сейчас") { monitor.retryNow() }
                     .disabled(!store.restrictedPlaces.enabled)
-                Text("Кнопка запускает повторную проверку при открытой камере. Пока проверка не завершилась, съёмка остаётся заблокирована.")
+                Text("Если камера закрыта, запрос начнётся при её открытии. Пока онлайн‑проверка не завершилась, съёмка остаётся заблокирована.")
                     .font(.caption).foregroundColor(.secondary)
             }
             Section("Точность координат") {
