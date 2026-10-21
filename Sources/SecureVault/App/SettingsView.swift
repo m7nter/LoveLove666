@@ -325,33 +325,23 @@ struct SettingsView: View {
                 }
 
                 Section("Автоматическое уничтожение") {
-                    Toggle("Включить Dead Man's Switch", isOn: Binding(
-                        get: { inactivity.isEnabled },
-                        set: { value in
-                            if !value { inactivity.disable() }
-                            else {
-                                pendingInactivityHours = inactivity.limitHours > 0 ? inactivity.limitHours : 24
-                                showInactivityConfirmation = true
-                            }
-                        }))
+                    Toggle("Включить Dead Man's Switch", isOn: inactivityEnabledBinding)
                         .tint(.red)
                     if inactivity.isEnabled {
-                        Picker("При неактивности", selection: Binding(
-                            get: { inactivity.limitHours },
-                            set: { value in
-                                pendingInactivityHours = value
-                                showInactivityConfirmation = true
-                            })) {
+                        Picker("При неактивности", selection: inactivityHoursBinding) {
                             Text("24 часа").tag(24)
                             Text("48 часов").tag(48)
                             Text("72 часа").tag(72)
                             Text("7 дней").tag(168)
                         }
+                        .accessibilityIdentifier("settings.inactivityTimer")
                     }
-                    .accessibilityIdentifier("settings.inactivityTimer")
                     Text("Если приложение не будет запущено и разблокировано до истечения интервала, хранилище будет полностью уничтожено. Откат системного времени также считается попыткой обхода и может немедленно стереть данные.")
                         .font(.caption)
                         .foregroundColor(.red)
+                    if let error = inactivity.lastError {
+                        Text(error).font(.caption).foregroundColor(.red)
+                    }
                 }
 
                 Section("Подсказка") {
@@ -419,6 +409,28 @@ struct SettingsView: View {
         case "yellow": return .yellow
         default: return .white
         }
+    }
+
+    private var inactivityEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { inactivity.isEnabled },
+            set: { value in
+                if value {
+                    pendingInactivityHours = inactivity.limitHours > 0 ? inactivity.limitHours : 24
+                    showInactivityConfirmation = true
+                } else {
+                    inactivity.disable()
+                }
+            })
+    }
+
+    private var inactivityHoursBinding: Binding<Int> {
+        Binding(
+            get: { inactivity.limitHours },
+            set: { value in
+                pendingInactivityHours = value
+                showInactivityConfirmation = true
+            })
     }
 }
 
