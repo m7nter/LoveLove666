@@ -193,7 +193,28 @@ final class RestrictedPlacesMonitor: ObservableObject {
         URL(string: "https://overpass.nchc.org.tw/api/interpreter")!,
     ]
 
-    private static func requestPlaces(session: URLSession, endpoint: URL, query: String) async throws -> [RestrictedPlace] {
+    private struct OverpassResponse {
+        let places: [RestrictedPlace]
+        let endpoint: URL
+    }
+
+    private var endpointOrder: [URL] {
+        let known = Self.overpassEndpoints
+        let saved = UserDefaults.standard.stringArray(forKey: "osm.overpass.endpointOrder") ?? []
+        let byString = Dictionary(uniqueKeysWithValues: known.map { ($0.absoluteString, $0) })
+        var result = saved.compactMap { byString[$0] }
+        result.append(contentsOf: known.filter { endpoint in !result.contains(endpoint) })
+        return result
+    }
+
+    private func rememberSuccessfulEndpoint(_ endpoint: URL) {
+        var ordered = endpointOrder
+        ordered.removeAll { $0 == endpoint }
+        ordered.insert(endpoint, at: 0)
+        UserDefaults.standard.set(ordered.map(\.absoluteString), forKey: "osm.overpass.endpointOrder")
+    }
+
+    private static func requestPlaces(session: URLSession, endpoint: URL, query: String) async throws -> OverpassResponse {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -208,7 +229,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
             let (data, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, http.statusCode == 200,
                data.count <= 16_777_216 {
-                return uniquePlaces(try RestrictedPlacesParser.parse(data))
+                return .init(places: uniquePlaces(try RestrictedPlacesParser.parse(data)), endpoint: endpoint)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -235,7 +256,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
             throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "Overpass HTTP \(status)"])
         }
         let parsed = try RestrictedPlacesParser.parse(data)
-        return uniquePlaces(parsed)
+        return .init(places: uniquePlaces(parsed), endpoint: endpoint)
     }
 
     private static func uniquePlaces(_ places: [RestrictedPlace]) -> [RestrictedPlace] {
@@ -245,14 +266,15 @@ final class RestrictedPlacesMonitor: ObservableObject {
         return Array(unique.values)
     }
 
-    private static func requestPlacesFromAnyEndpoint(session: URLSession, query: String) async throws -> [RestrictedPlace] {
+    private static func requestPlacesFromAnyEndpoint(session: URLSession, query: String,
+                                                     endpoints: [URL]) async throws -> OverpassResponse {
         // A valid empty Overpass response is still a complete answer. Waiting
         // for every mirror before accepting [] made a quiet location take as
         // long as the slowest or unreachable endpoint (often 10–18 seconds).
         // Race a small primary set and accept the first valid response,
         // including an empty one. Backups are used only when every primary
         // endpoint fails, so a slow mirror cannot hold the camera hostage.
-        func firstValid(from endpoints: ArraySlice<URL>) async throws -> [RestrictedPlace] {
+        func firstValid(from endpoints: ArraySlice<URL>) async throws -> OverpassResponse {
             guard !endpoints.isEmpty else { throw URLError(.cannotLoadFromNetwork) }
             return try await withThrowingTaskGroup(of: [RestrictedPlace].self) { group in
                 for endpoint in endpoints {
@@ -278,9 +300,9 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }
 
         do {
-            return try await firstValid(from: overpassEndpoints.prefix(4))
+            return try await firstValid(from: endpoints.prefix(4))
         } catch {
-            return try await firstValid(from: overpassEndpoints.dropFirst(4))
+            return try await firstValid(from: endpoints.dropFirst(4))
         }
     }
 
@@ -288,20 +310,23 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let id = UUID(); requestID = id
         let query = Self.query(near: center, radius: radius, settings: settings)
         let session = self.session
+        let endpoints = endpointOrder
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
-        lastCheckSummary = "Выполняем запрос к OpenStreetMap…"
+        lastCheckSummary = "Выполняем запрос к OpenStreetMap через (endpoints.count) зеркал…"
         publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
         let startedAt = Date()
         requestTask = Task { [weak self] in
             do {
-                let places = try await Self.requestPlacesFromAnyEndpoint(session: session, query: query)
+                let response = try await Self.requestPlacesFromAnyEndpoint(session: session, query: query, endpoints: endpoints)
                 try Task.checkCancellation()
                 await MainActor.run { [weak self] in
                     guard let self, self.active, self.requestID == id else { return }
                     self.requestTask = nil; self.requestID = nil
-                    self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: places)
+                    self.rememberSuccessfulEndpoint(response.endpoint)
+                    self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: response.places)
                     let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
-                    self.lastCheckSummary = "Успешно: найдено объектов — \(places.count). Ответ за \(elapsed) с."
+                    let server = response.endpoint.host ?? "Overpass"
+                    self.lastCheckSummary = "Успешно: найдено объектов — \(response.places.count). \(server), \(elapsed) с."
                     self.failureCount = 0; self.nextRequest = Date().addingTimeInterval(30)
                     self.unavailableReason = "Проверяем ближайшие территории…"
                     self.tick()
