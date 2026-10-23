@@ -146,8 +146,7 @@ final class VaultCipher {
     }
     func isPINBound() -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let envelope = try? readEnvelope() else { return false }
-        return envelope != nil
+        return (try? readEnvelope()) != nil
     }
     func encrypt(_ data: Data) throws -> Data {
         lock.lock(); defer { lock.unlock() }
