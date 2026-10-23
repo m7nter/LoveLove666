@@ -164,6 +164,24 @@ struct SecureVaultApp: App {
         inactivityTimer = nil
     }
 
+    /// Checks the Dead Man's Switch on every return to the active scene, not
+    /// only during App.init. This closes the warm-resume path where iOS keeps
+    /// the process alive across the configured deadline.
+    private func enforceInactivityIfNeeded() -> Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--test-legacy-lock") || args.contains("--test-calculator") { return true }
+        #endif
+        guard let limit = InactivityTimerManager.shared.activeLimitHours else { return true }
+        guard InactivityTimerManager.shared.shouldWipeData(limitHours: limit) else { return true }
+        InactivityTimerManager.shared.clearMarkers()
+        stopTimer()
+        isUnlocked = false
+        isCameraOnly = false
+        VaultLifecycle.shared.erase(.reset)
+        return false
+    }
+
     private func setupCrashLogging() {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         try? FileManager.default.removeItem(at: caches.appendingPathComponent("crash.log"))
@@ -281,7 +299,6 @@ struct RootView: View {
     private func unlock() {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
-        guard enforceInactivityIfNeeded() else { return }
         guard InactivityTimerManager.shared.recordActivity() else {
             VaultLifecycle.shared.erase(.reset)
             return
@@ -320,18 +337,4 @@ struct RootView: View {
         PhotoExporter.cleanupTemporaryExports()
     }
 
-    /// Checks the Dead Man's Switch on every return to the active scene, not
-    /// only during App.init. This closes the warm-resume path where iOS keeps
-    /// the process alive across the configured deadline.
-    private func enforceInactivityIfNeeded() -> Bool {
-        guard !isUITestFixture,
-              let limit = InactivityTimerManager.shared.activeLimitHours else { return true }
-        guard InactivityTimerManager.shared.shouldWipeData(limitHours: limit) else { return true }
-        InactivityTimerManager.shared.clearMarkers()
-        stopTimer()
-        isUnlocked = false
-        isCameraOnly = false
-        VaultLifecycle.shared.erase(.reset)
-        return false
-    }
 }
