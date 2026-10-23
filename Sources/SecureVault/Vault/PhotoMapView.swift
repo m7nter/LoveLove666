@@ -16,6 +16,7 @@ struct PhotoMapView: View {
         span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
     )
     @State private var selectedPin: PhotoPin?
+    @State private var selectedImage: UIImage?
     @ObservedObject private var settings = SettingsStore.shared
 
     var body: some View {
@@ -83,7 +84,7 @@ struct PhotoMapView: View {
                 VStack {
                     Spacer()
                     HStack {
-                        if let img = FileStorageManager.shared.loadImage(at: pin.url) {
+                        if let img = selectedImage {
                             Image(uiImage: img)
                                 .resizable()
                                 .scaledToFill()
@@ -120,32 +121,45 @@ struct PhotoMapView: View {
             }
         }
         .onAppear { loadPins() }
+        .onChange(of: selectedPin?.url) { _ in loadSelectedImage() }
     }
 
     private func loadPins() {
-        let items = FileStorageManager.shared.loadAllWithMeta()
-        var result: [PhotoPin] = []
-        for (url, meta) in items {
-            if let m = meta, m.hasLocation != false,
-               !(m.hasLocation == nil && m.latitude == 0 && m.longitude == 0),
-               CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: m.latitude, longitude: m.longitude)) {
-                result.append(PhotoPin(
-                    coordinate: CLLocationCoordinate2D(
-                        latitude: m.latitude,
-                        longitude: m.longitude
-                    ),
-                    url: url,
-                    date: m.date
-                ))
+        DispatchQueue.global(qos: .userInitiated).async {
+            let items = FileStorageManager.shared.loadAllWithMeta()
+            var result: [PhotoPin] = []
+            for (url, meta) in items {
+                if let m = meta, m.hasLocation != false,
+                   !(m.hasLocation == nil && m.latitude == 0 && m.longitude == 0),
+                   CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: m.latitude, longitude: m.longitude)) {
+                    result.append(PhotoPin(
+                        coordinate: CLLocationCoordinate2D(latitude: m.latitude, longitude: m.longitude),
+                        url: url,
+                        date: m.date
+                    ))
+                }
+            }
+            DispatchQueue.main.async {
+                pins = result
+                // Центрируем карту на первом пине
+                if let first = result.first {
+                    region.center = first.coordinate
+                } else if let loc = LocationManager.shared.location {
+                    region.center = loc.coordinate
+                }
             }
         }
-        pins = result
+    }
 
-        // Центрируем карту на первом пине
-        if let first = result.first {
-            region.center = first.coordinate
-        } else if let loc = LocationManager.shared.location {
-            region.center = loc.coordinate
+    private func loadSelectedImage() {
+        selectedImage = nil
+        guard let url = selectedPin?.url else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let image = FileStorageManager.shared.loadImage(at: url)
+            DispatchQueue.main.async {
+                guard selectedPin?.url == url else { return }
+                selectedImage = image
+            }
         }
     }
 
