@@ -38,8 +38,8 @@ enum ProtectedPreferences {
         }
         guard let encrypted = CryptoManager.encrypt(value) else {
             // Protected data may be unavailable during a lock transition.
-            // Retain the old value instead of losing a user's edit.
-            if defaults.data(forKey: encryptedKey) == nil { defaults.set(value, forKey: key) }
+            // Never write the new sensitive value in plaintext as a fallback;
+            // the caller can retry after the device is unlocked.
             return
         }
         defaults.set(encrypted, forKey: encryptedKey)

@@ -123,13 +123,19 @@ struct SecureVaultApp: App {
                     }
                 case .active:
                     if lifecycle.blocksUI { lifecycle.resumePendingErase() }
-                    if !lifecycle.blocksUI, let bg = backgroundTime, !SettingsStore.shared.lockOnBackground {
-                        let elapsed = Date().timeIntervalSince(bg)
-                        let timeout = SettingsStore.shared.autoLockTimeout
-                        if timeout > 0 && elapsed >= Double(timeout) && isUnlocked {
-                            isUnlocked = false
-                        } else if isUnlocked {
-                            startTimer()
+                    if !lifecycle.blocksUI {
+                        guard enforceInactivityIfNeeded() else {
+                            backgroundTime = nil
+                            return
+                        }
+                        if let bg = backgroundTime, !SettingsStore.shared.lockOnBackground {
+                            let elapsed = Date().timeIntervalSince(bg)
+                            let timeout = SettingsStore.shared.autoLockTimeout
+                            if timeout > 0 && elapsed >= Double(timeout) && isUnlocked {
+                                isUnlocked = false
+                            } else if isUnlocked {
+                                startTimer()
+                            }
                         }
                     }
                     backgroundTime = nil
@@ -275,6 +281,11 @@ struct RootView: View {
     private func unlock() {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
+        guard enforceInactivityIfNeeded() else { return }
+        guard InactivityTimerManager.shared.recordActivity() else {
+            VaultLifecycle.shared.erase(.reset)
+            return
+        }
         let wasSetup = needsSetup
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--test-gallery") {
@@ -297,7 +308,6 @@ struct RootView: View {
         #endif
         needsSetup = false; showAccess = false
         isUnlocked = true; isCameraOnly = false
-        _ = InactivityTimerManager.shared.recordActivity()
         onStartTimer()
         if wasSetup && welcomeGuidePromptVersion == 0 && !isUITestFixture {
             showWelcomePrompt = true
@@ -308,5 +318,20 @@ struct RootView: View {
         showAccess = false
         onStopTimer()
         PhotoExporter.cleanupTemporaryExports()
+    }
+
+    /// Checks the Dead Man's Switch on every return to the active scene, not
+    /// only during App.init. This closes the warm-resume path where iOS keeps
+    /// the process alive across the configured deadline.
+    private func enforceInactivityIfNeeded() -> Bool {
+        guard !isUITestFixture,
+              let limit = InactivityTimerManager.shared.activeLimitHours else { return true }
+        guard InactivityTimerManager.shared.shouldWipeData(limitHours: limit) else { return true }
+        InactivityTimerManager.shared.clearMarkers()
+        stopTimer()
+        isUnlocked = false
+        isCameraOnly = false
+        VaultLifecycle.shared.erase(.reset)
+        return false
     }
 }
