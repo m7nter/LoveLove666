@@ -7,6 +7,7 @@ struct SecureVaultApp: App {
     @State private var backgroundTime: Date? = nil
     @State private var inactivityTimer: Timer? = nil
     @State private var showsRecovery = false
+    @State private var privacyCover = false
     @Environment(\.scenePhase) var scenePhase
     @StateObject private var lifecycle = VaultLifecycle.shared
 
@@ -77,6 +78,7 @@ struct SecureVaultApp: App {
 
     var body: some Scene {
         WindowGroup {
+            ZStack {
             Group {
             if lifecycle.blocksUI && showsRecovery {
                 VaultRecoveryView(lifecycle: lifecycle, onCalculator: { showsRecovery = false })
@@ -89,6 +91,11 @@ struct SecureVaultApp: App {
                 onBlockedAccess: { showsRecovery = true }
             )
             .id(lifecycle.generation)
+            }
+            }
+            if privacyCover {
+                Color.black.ignoresSafeArea()
+                    .accessibilityHidden(true)
             }
             }
             .onReceive(NotificationCenter.default.publisher(for: .vaultWillErase)) { _ in
@@ -118,6 +125,7 @@ struct SecureVaultApp: App {
                 case .background, .inactive:
                     backgroundTime = Date()
                     stopTimer()
+                    privacyCover = isUnlocked || isCameraOnly || showsRecovery
                     if phase == .background && !lifecycle.blocksUI && SettingsStore.shared.lockOnBackground && isUnlocked {
                         isUnlocked = false
                     }
@@ -125,6 +133,7 @@ struct SecureVaultApp: App {
                         isCameraOnly = false
                     }
                 case .active:
+                    privacyCover = false
                     if lifecycle.blocksUI { lifecycle.resumePendingErase() }
                     if !lifecycle.blocksUI {
                         guard enforceInactivityIfNeeded() else {

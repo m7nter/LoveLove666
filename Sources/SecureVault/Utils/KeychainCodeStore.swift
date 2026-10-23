@@ -5,7 +5,8 @@ import Security
 // The first read imports codes from earlier versions without changing them.
 enum KeychainCodeStore {
     private static let service = "com.securevault.accesscodes"
-    private static let accounts = ["mainCode", "vaultCode", "kamikazeCode", "actionButtonToken"]
+    private static let accounts = ["mainCode", "vaultCode", "kamikazeCode", "actionButtonToken",
+                                   "vaultPinAttempts", "vaultPinCooldownUntil"]
     private static let migrationPrefix = "legacyMigrated."
 
     private static func query(_ account: String) -> [String: Any] {
