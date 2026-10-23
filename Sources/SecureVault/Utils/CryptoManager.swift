@@ -126,7 +126,7 @@ final class VaultCipher {
         cachedKey = SymmetricKey(data: raw); pinUnlocked = true
     }
     private func storePINBinding(_ pin: String, key current: SymmetricKey) throws {
-        guard pin.count >= 4 else { throw CocoaError(.validationMissingMandatoryProperty) }
+        guard pin.count >= 4 else { throw CocoaError(.fileWriteUnknown) }
         let salt = Data((0..<16).map { _ in UInt8.random(in: 0...255) })
         let wrappingKey = derivedKey(pin: pin, salt: salt)
         guard let wrapped = try AES.GCM.seal(current.withUnsafeBytes { Data($0) }, using: wrappingKey).combined else {
