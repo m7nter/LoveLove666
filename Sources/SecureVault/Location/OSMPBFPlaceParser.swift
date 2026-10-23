@@ -209,8 +209,12 @@ enum OSMPBFPlaceParser {
                         if neededNodeIDs?.contains(item.0) == true { nodes[item.0] = item.1 }
                         if neededNodeIDs == nil, !item.2.isEmpty { taggedNodes.append(item) }
                     }
-                case 3: ways.append(try way(try group.bytes(), table: table))
-                case 4: relations.append(try relation(try group.bytes(), table: table))
+                case 3:
+                    let value = try way(try group.bytes(), table: table)
+                    if neededNodeIDs == nil { ways.append(value) }
+                case 4:
+                    let value = try relation(try group.bytes(), table: table)
+                    if neededNodeIDs == nil { relations.append(value) }
                 default: try group.skip(wire: field.wire)
                 }
             }
@@ -320,9 +324,8 @@ enum OSMPBFPlaceParser {
         var nodes: [Int64: OSMCoordinate] = [:]
         var ignoredTaggedNodes: [(Int64, OSMCoordinate, [String: String])] = []
         try eachPrimitiveBlock(data, { block in
-            var ignoredWays: [Way] = [], ignoredRelations: [Relation] = []
             try primitiveBlock(block, nodes: &nodes, taggedNodes: &ignoredTaggedNodes,
-                              ways: &ignoredWays, relations: &ignoredRelations,
+                              ways: &ways, relations: &relations,
                               neededNodeIDs: neededNodeIDs)
         }, progress: { done, total in
             progress?(total + done, total * 2)
