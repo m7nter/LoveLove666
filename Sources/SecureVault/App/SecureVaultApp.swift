@@ -92,9 +92,12 @@ struct SecureVaultApp: App {
             }
             }
             .onReceive(NotificationCenter.default.publisher(for: .vaultWillErase)) { _ in
-                stopTimer(); isUnlocked = false; isCameraOnly = false
+                stopTimer(); isUnlocked = false; isCameraOnly = false; showsRecovery = true
                 VolumeButtonHandler.shared.stop()
                 LocationManager.shared.stop()
+            }
+            .onAppear {
+                if lifecycle.blocksUI { showsRecovery = true }
             }
             .onReceive(NotificationCenter.default.publisher(for: .blackScreenChanged)) { notification in
                 if notification.object as? Bool == true { stopTimer() }
