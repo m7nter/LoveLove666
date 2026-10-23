@@ -180,7 +180,11 @@ enum OSMPBFPlaceParser {
         return Relation(id: id, tags: tags(keys: keys, values: values, table: table), members: members)
     }
 
-    private static func primitiveBlock(_ data: Data, nodes: inout [Int64: OSMCoordinate], taggedNodes: inout [(Int64, OSMCoordinate, [String: String])], ways: inout [Way], relations: inout [Relation]) throws {
+    private static func primitiveBlock(_ data: Data,
+                                       nodes: inout [Int64: OSMCoordinate],
+                                       taggedNodes: inout [(Int64, OSMCoordinate, [String: String])],
+                                       ways: inout [Way], relations: inout [Relation],
+                                       neededNodeIDs: Set<Int64>?) throws {
         var reader = Reader(data: data), table: [String] = [], groups: [Data] = [], granularity: Int64 = 100, latOffset: Int64 = 0, lonOffset: Int64 = 0
         while let field = try reader.field() {
             switch field.number {
@@ -197,9 +201,14 @@ enum OSMPBFPlaceParser {
             while let field = try group.field() {
                 switch field.number {
                 case 1:
-                    let item = try node(try group.bytes(), table: table, granularity: granularity, latOffset: latOffset, lonOffset: lonOffset); nodes[item.0] = item.1; if !item.2.isEmpty { taggedNodes.append(item) }
+                    let item = try node(try group.bytes(), table: table, granularity: granularity, latOffset: latOffset, lonOffset: lonOffset)
+                    if neededNodeIDs?.contains(item.0) == true { nodes[item.0] = item.1 }
+                    if neededNodeIDs == nil, !item.2.isEmpty { taggedNodes.append(item) }
                 case 2:
-                    for item in try denseNodes(try group.bytes(), table: table, granularity: granularity, latOffset: latOffset, lonOffset: lonOffset) { nodes[item.0] = item.1; if !item.2.isEmpty { taggedNodes.append(item) } }
+                    for item in try denseNodes(try group.bytes(), table: table, granularity: granularity, latOffset: latOffset, lonOffset: lonOffset) {
+                        if neededNodeIDs?.contains(item.0) == true { nodes[item.0] = item.1 }
+                        if neededNodeIDs == nil, !item.2.isEmpty { taggedNodes.append(item) }
+                    }
                 case 3: ways.append(try way(try group.bytes(), table: table))
                 case 4: relations.append(try relation(try group.bytes(), table: table))
                 default: try group.skip(wire: field.wire)
@@ -285,15 +294,46 @@ enum OSMPBFPlaceParser {
 
     static func parse(url: URL, progress: ((Int, Int) -> Void)? = nil) throws -> [RestrictedPlace] {
         let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-        var nodes: [Int64: OSMCoordinate] = [:], taggedNodes: [(Int64, OSMCoordinate, [String: String])] = [], ways: [Way] = [], relations: [Relation] = []
-        try eachPrimitiveBlock(data, { try primitiveBlock($0, nodes: &nodes, taggedNodes: &taggedNodes, ways: &ways, relations: &relations) }, progress: progress)
+        // The first pass keeps only tagged nodes plus way/relation references.
+        // Keeping every node from a regional PBF was the dominant memory cost.
+        var firstPassNodes: [Int64: OSMCoordinate] = [:]
+        var taggedNodes: [(Int64, OSMCoordinate, [String: String])] = []
+        var ways: [Way] = [], relations: [Relation] = []
+        try eachPrimitiveBlock(data, { block in
+            try primitiveBlock(block, nodes: &firstPassNodes, taggedNodes: &taggedNodes,
+                              ways: &ways, relations: &relations, neededNodeIDs: nil)
+        }, progress: { done, total in
+            progress?(done, total * 2)
+        })
+
+        let restrictedRelations = relations.filter { RestrictedPlaceKind.classify($0.tags) != nil }
+        var neededWayIDs = Set(ways.compactMap { RestrictedPlaceKind.classify($0.tags) == nil ? nil : $0.id })
+        for relation in restrictedRelations {
+            neededWayIDs.formUnion(relation.members.filter { $0.type == 1 }.map(\.ref))
+        }
+        let retainedWays = ways.filter { neededWayIDs.contains($0.id) }
+        let neededNodeIDs = Set(retainedWays.flatMap(\.refs))
+
+        // The second pass decodes coordinates only for nodes referenced by a
+        // restricted way or relation. A mapped file remains cheap to reread,
+        // while the live dictionaries stay bounded by relevant geometry.
+        var nodes: [Int64: OSMCoordinate] = [:]
+        var ignoredTaggedNodes: [(Int64, OSMCoordinate, [String: String])] = []
+        try eachPrimitiveBlock(data, { block in
+            var ignoredWays: [Way] = [], ignoredRelations: [Relation] = []
+            try primitiveBlock(block, nodes: &nodes, taggedNodes: &ignoredTaggedNodes,
+                              ways: &ignoredWays, relations: &ignoredRelations,
+                              neededNodeIDs: neededNodeIDs)
+        }, progress: { done, total in
+            progress?(total + done, total * 2)
+        })
         var places: [RestrictedPlace] = taggedNodes.compactMap { item in
             guard let kind = RestrictedPlaceKind.classify(item.2) else { return nil }
             return RestrictedPlace(id: "node/\(item.0)", kind: kind, name: item.2["name:ru"] ?? item.2["name"], point: item.1, lines: [], outerRings: [], innerRings: [])
         }
-        for way in ways { if let place = makePlace(way, nodes: nodes) { places.append(place) } }
-        let wayByID = Dictionary(uniqueKeysWithValues: ways.map { ($0.id, $0) })
-        for relation in relations { if let place = makePlace(relation, ways: wayByID, nodes: nodes) { places.append(place) } }
+        for way in retainedWays { if let place = makePlace(way, nodes: nodes) { places.append(place) } }
+        let wayByID = Dictionary(uniqueKeysWithValues: retainedWays.map { ($0.id, $0) })
+        for relation in restrictedRelations { if let place = makePlace(relation, ways: wayByID, nodes: nodes) { places.append(place) } }
         return places
     }
 
