@@ -74,6 +74,7 @@ struct VaultAccessView: View {
                     guard try KeychainCodeStore.readChecked("mainCode") == code else {
                         throw CocoaError(.fileReadCorruptFile)
                     }
+                    try CryptoManager.bindPIN(code)
                 }
                 onAuthorized()
             } catch {
@@ -84,7 +85,14 @@ struct VaultAccessView: View {
             calculator.tap("AC")
             for digit in code { calculator.tap(String(digit)) }
             calculator.tap("=")
-            if calculator.shouldUnlock { onAuthorized() }
+            if calculator.shouldUnlock {
+                do {
+                    try CryptoManager.unlock(withPIN: code)
+                    onAuthorized()
+                } catch {
+                    self.error = "Код верный, но не удалось открыть ключ шифрования: (error.localizedDescription)"
+                }
+            }
             else { error = "Код не подошёл или действует минутная пауза после нескольких попыток." }
         }
     }

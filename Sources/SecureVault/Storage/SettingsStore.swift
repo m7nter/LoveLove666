@@ -168,6 +168,12 @@ class SettingsStore: ObservableObject {
 
     private func saveCode(_ code: String, for account: String) {
         do {
+            if account == "mainCode", !code.isEmpty {
+                // Rotate the PIN wrapping before replacing the stored code so
+                // an interrupted update cannot leave the key bound to a code
+                // that is no longer accepted by the UI.
+                try CryptoManager.rebindPIN(code)
+            }
             try KeychainCodeStore.write(code, for: account)
             securityError = nil
         } catch {

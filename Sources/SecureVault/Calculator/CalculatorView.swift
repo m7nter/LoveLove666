@@ -4,7 +4,7 @@ import AudioToolbox
 struct CalculatorView: View {
     @StateObject private var vm = CalculatorViewModel()
     @StateObject private var conversion = ConversionModel()
-    var onUnlock: () -> Void
+    var onUnlock: (String) -> Void
     var onAccess: () -> Void
     /// Legacy installs with the known compatibility code must complete setup
     /// before the hidden calculator entry can unlock the vault.
@@ -74,7 +74,7 @@ struct CalculatorView: View {
             #endif
         }
         .onChange(of: vm.shouldUnlock) { value in
-            if value { vm.shouldUnlock = false; onUnlock() }
+            if value { vm.shouldUnlock = false; onUnlock(vm.consumeUnlockCode() ?? "") }
         }
         .onChange(of: converting) { value in
             vm.allowsVaultEntry = vaultEntryEnabled && !value
@@ -248,7 +248,7 @@ struct ConversionPicker: View {
             }
             if model.category == .currency {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("yahoo!finance").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.82))
+                    Text("Frankfurter").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.82))
                     Spacer()
                     Text(model.updateLabel).font(.system(size: 15)).foregroundStyle(.secondary)
                 }.padding(.horizontal, 28).padding(.top, 8)
