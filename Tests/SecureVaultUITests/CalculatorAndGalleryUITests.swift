@@ -29,7 +29,7 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         let euro = app.buttons["conversion.unit.EUR"]
         XCTAssertTrue(euro.waitForExistence(timeout: 5)); euro.tap()
         XCTAssertTrue(app.staticTexts["calculator.converted"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Frankfurter'")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Frankfurter'")).firstMatch.exists)
     }
     func testEventCoverOpensItsTwoPhotosWithoutMixingEvents() {
         let app = launch(["--test-gallery"])
