@@ -86,7 +86,9 @@ struct RestrictedPlacesSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .background(NavigationLink(destination: OfflineMapsView(), isActive: $showOffline) { EmptyView() }.hidden())
         .onChange(of: store.restrictedPlaces.enabled) { enabled in
-            if enabled { offline.open(); offerDownload = true }
+            if enabled && store.restrictedPlaces.checkMode != .online {
+                offline.open(); offerDownload = true
+            }
         }
         .alert("Скачать регион для работы без интернета?", isPresented: $offerDownload) {
             Button("Выбрать и скачать") { showOffline = true }

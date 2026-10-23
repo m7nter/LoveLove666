@@ -16,7 +16,25 @@ struct WatermarkRenderer {
         let avatarImage = SettingsStore.shared.avatarImage
         let hasLabel = !(labelText ?? "").isEmpty
         let avatarSize: CGFloat = size.width * 0.22
-        let footerHeight = hasLabel || avatarImage != nil ? avatarSize + padding * 2 : 0
+        let labelFont = UIFont.systemFont(ofSize: max(size.width * 0.03, 18), weight: .medium)
+        let labelWidth = max(1, size.width - avatarSize - padding * 3)
+        let labelAttrs: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: UIColor.white
+        ]
+        let labelHeight: CGFloat
+        if hasLabel, let labelText {
+            let measured = labelText.boundingRect(
+                with: CGSize(width: labelWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: labelAttrs,
+                context: nil)
+            labelHeight = ceil(max(labelFont.lineHeight, measured.height))
+        } else {
+            labelHeight = 0
+        }
+        let footerContentHeight = max(avatarImage == nil ? 0 : avatarSize, labelHeight)
+        let footerHeight = footerContentHeight > 0 ? footerContentHeight + padding * 2 : 0
         let outputSize = CGSize(width: size.width, height: size.height + footerHeight)
         // Preserve the source bitmap scale. UIGraphicsImageRenderer's default
         // uses the current screen scale, which changed an 800×600 photo into
@@ -90,7 +108,9 @@ struct WatermarkRenderer {
                 let dotSize: CGFloat = max(size.width * 0.018, 12)
                 let dotX = size.width - dotSize - padding / 2
                 let dotY = padding + (lineHeight - dotSize) / 2
-                let isAccurate = location?.horizontalAccuracy ?? 999 < 15
+                let accuracyLimit = SettingsStore.shared.accuracyProtectionEnabled
+                    ? Double(SettingsStore.shared.accuracyThreshold) : 15
+                let isAccurate = (location?.horizontalAccuracy ?? 999) <= accuracyLimit
                 (isAccurate ? UIColor.green : UIColor.yellow).setFill()
                 UIBezierPath(ovalIn: CGRect(x: dotX, y: dotY,
                                             width: dotSize, height: dotSize)).fill()
@@ -132,16 +152,14 @@ struct WatermarkRenderer {
                 UIRectFill(CGRect(x: 0, y: bottomY, width: size.width, height: footerHeight))
 
                 if let label = labelText, !label.isEmpty {
-                    let labelFont = UIFont.systemFont(ofSize: max(size.width * 0.03, 18), weight: .bold)
-                    let labelAttrs: [NSAttributedString.Key: Any] = [
-                        .font: labelFont,
-                        .foregroundColor: UIColor.white
-                    ]
                     let labelRect = CGRect(
                         x: padding, y: bottomY + padding,
-                        width: size.width - avatarSize - padding * 3,
+                        width: labelWidth,
                         height: footerHeight - padding * 2)
-                    (label as NSString).draw(in: labelRect, withAttributes: labelAttrs)
+                    (label as NSString).draw(with: labelRect,
+                                             options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                             attributes: labelAttrs,
+                                             context: nil)
                 }
 
                 if let avatar = avatarImage {

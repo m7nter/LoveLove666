@@ -39,6 +39,8 @@ final class FileStorageManager {
     private var cachedLatestURL: URL?
     private var cachedLatestLocation: CLLocation?
     private var cachedLatestResolved = false
+    private var cachedLatestEventLocation: CLLocation?
+    private var cachedLatestEventLocationResolved = false
     private var vaultDirectory: URL {
         directory ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("VaultPhotos")
     }
@@ -53,11 +55,14 @@ final class FileStorageManager {
             self.cachedLatestURL = nil
             self.cachedLatestLocation = nil
             self.cachedLatestResolved = false
+            self.cachedLatestEventLocation = nil
+            self.cachedLatestEventLocationResolved = false
             self.thumbnailCache.removeAllObjects()
         }
         try? VaultGate.shared.withAccess {
             try fm.createDirectory(at: vaultDirectory, withIntermediateDirectories: true)
             try? (vaultDirectory as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
+            markExcludedFromBackup(vaultDirectory)
         }
         if migrationInBackground {
             DispatchQueue.global(qos: .utility).async { [weak self] in self?.backfillNumbers() }
@@ -124,12 +129,16 @@ final class FileStorageManager {
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             try (dir as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
+            markExcludedFromBackup(dir)
             try encrypted.write(to: url, options: [.atomic, .completeFileProtection])
+            markExcludedFromBackup(url)
             do { try saveMeta(meta, for: url) }
             catch { try? fm.removeItem(at: url); throw error }
             cachedLatestURL = nil
             cachedLatestLocation = nil
             cachedLatestResolved = false
+            cachedLatestEventLocation = nil
+            cachedLatestEventLocationResolved = false
             return url
         } catch { return nil }
     }
@@ -216,6 +225,7 @@ final class FileStorageManager {
               let encrypted = CryptoManager.encrypt(raw) else { return nil }
         do {
             try encrypted.write(to: metaURL(for: url), options: [.atomic, .completeFileProtection])
+            markExcludedFromBackup(metaURL(for: url))
             return legacy
         } catch { return nil }
     }
@@ -223,6 +233,11 @@ final class FileStorageManager {
         let data = try JSONEncoder().encode(meta)
         guard let encrypted = CryptoManager.encrypt(data) else { throw CocoaError(.fileWriteUnknown) }
         try encrypted.write(to: metaURL(for: url), options: [.atomic, .completeFileProtection])
+        markExcludedFromBackup(metaURL(for: url))
+    }
+
+    private func markExcludedFromBackup(_ url: URL) {
+        try? (url as NSURL).setResourceValue(true, forKey: .isExcludedFromBackupKey)
     }
     func loadAllWithMeta() -> [(URL, PhotoMeta?)] {
         (try? VaultGate.shared.withAccess { loadAllWithMetaUnlocked() }) ?? []
@@ -246,13 +261,18 @@ final class FileStorageManager {
     /// the reference point.
     func lastEventLocation() -> CLLocation? {
         try? VaultGate.shared.withAccess { () -> CLLocation? in
+            if cachedLatestEventLocationResolved { return cachedLatestEventLocation }
             let records = loadAllWithMetaUnlocked().compactMap { url, meta -> (String, PhotoMeta)? in
                 guard let meta, meta.hasLocation != false,
                       meta.latitude >= -90, meta.latitude <= 90,
                       meta.longitude >= -180, meta.longitude <= 180 else { return nil }
                 return (url.path, meta)
             }
-            guard !records.isEmpty else { return nil }
+            guard !records.isEmpty else {
+                cachedLatestEventLocation = nil
+                cachedLatestEventLocationResolved = true
+                return nil
+            }
 
             // Event number is monotonic for newly created events. Legacy
             // records may not have it, so date remains a deterministic
@@ -271,9 +291,16 @@ final class FileStorageManager {
                 let rhsIndex = rhs.1.eventIndex ?? Int.max
                 if lhsIndex != rhsIndex { return lhsIndex < rhsIndex }
                 return lhs.1.date < rhs.1.date
-            }) else { return nil }
-            return CLLocation(coordinate: CLLocationCoordinate2D(latitude: first.1.latitude, longitude: first.1.longitude),
-                              altitude: 0, horizontalAccuracy: -1, verticalAccuracy: -1, timestamp: first.1.date)
+            }) else {
+                cachedLatestEventLocation = nil
+                cachedLatestEventLocationResolved = true
+                return nil
+            }
+            let result = CLLocation(coordinate: CLLocationCoordinate2D(latitude: first.1.latitude, longitude: first.1.longitude),
+                                    altitude: 0, horizontalAccuracy: -1, verticalAccuracy: -1, timestamp: first.1.date)
+            cachedLatestEventLocation = result
+            cachedLatestEventLocationResolved = true
+            return result
         }
     }
     private func overwriteUnlocked(image: UIImage, at url: URL) -> Bool {
@@ -379,11 +406,28 @@ final class FileStorageManager {
     }
     private func deleteUnlocked(url: URL) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        defer { cachedLatestURL = nil; cachedLatestLocation = nil; cachedLatestResolved = false; thumbnailCache.removeAllObjects() }
+        defer {
+            cachedLatestURL = nil; cachedLatestLocation = nil; cachedLatestResolved = false
+            cachedLatestEventLocation = nil; cachedLatestEventLocationResolved = false
+            thumbnailCache.removeAllObjects()
+        }
+        let metadataURL = metaURL(for: url)
         do {
+            let imageData = try Data(contentsOf: url)
+            let metadataData = fm.fileExists(atPath: metadataURL.path) ? try Data(contentsOf: metadataURL) : nil
             try fm.removeItem(at: url)
-            if fm.fileExists(atPath: metaURL(for: url).path) { try fm.removeItem(at: metaURL(for: url)) }
-            return true
+            do {
+                if fm.fileExists(atPath: metadataURL.path) { try fm.removeItem(at: metadataURL) }
+                return true
+            } catch {
+                // Keep image and sidecar as a consistent pair after a failed
+                // delete. Restore the image (and sidecar if needed).
+                try? imageData.write(to: url, options: [.atomic, .completeFileProtection])
+                if let metadataData, !fm.fileExists(atPath: metadataURL.path) {
+                    try? metadataData.write(to: metadataURL, options: [.atomic, .completeFileProtection])
+                }
+                return false
+            }
         } catch { return false }
     }
 
@@ -418,8 +462,10 @@ final class FileStorageManager {
                 lock.lock(); defer { lock.unlock() }
                 // Strengthen protection on files created by older versions.
                 try? (url as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
+                markExcludedFromBackup(url)
                 if fm.fileExists(atPath: metaURL(for: url).path) {
                     try? (metaURL(for: url) as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
+                    markExcludedFromBackup(metaURL(for: url))
                 }
                 if Self.looksLikeLegacyJPEG(url), decryptedDataUnlocked(for: url) == nil { return false }
                 let existing = loadMetaUnlocked(for: url)
@@ -433,7 +479,7 @@ final class FileStorageManager {
                 meta.dailyNumber = numbers.0; meta.totalNumber = numbers.1
                 try? saveMeta(meta, for: url)
                 return true
-            }) else { break }
+            }) else { continue }
         }
     }
 

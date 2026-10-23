@@ -138,6 +138,20 @@ final class ExportMetadataTests: XCTestCase {
             }
         }
     }
+
+    func testWatermarkGrowsFooterForWrappedLabelWithoutChangingPhotoWidth() {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 300), format: format).image { _ in
+            UIColor.blue.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 400, height: 300))
+        }
+        let marked = WatermarkRenderer.apply(
+            to: image,
+            location: nil,
+            heading: nil,
+            labelText: "Длинная подпись события, которая должна переноситься на следующую строку, а не исчезать")
+        XCTAssertEqual(marked.cgImage?.width, image.cgImage?.width)
+        XCTAssertGreaterThan(marked.cgImage?.height ?? 0, image.cgImage?.height ?? 0)
+    }
     func testSanitizedLegacyJPEGDoesNotRetainGPSDateOrCameraIdentity() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -21,9 +21,10 @@ struct CameraScreen: View {
 
     private var captureButtonColor: Color {
         guard let accuracy = currentAccuracy else { return .white }
-        if accuracy <= 10 {
+        let limit = settings.accuracyProtectionEnabled ? Double(settings.accuracyThreshold) : 15
+        if accuracy <= max(5, limit * 0.6) {
             return .green
-        } else if accuracy <= 20 {
+        } else if accuracy <= limit {
             return .orange
         } else {
             return .red

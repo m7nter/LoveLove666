@@ -72,10 +72,11 @@ final class InactivityTimerManager: ObservableObject {
               let savedUptime = readKeychainDouble(account: uptimeAccount),
               savedWall.isFinite, savedUptime.isFinite,
               savedWall >= 0, savedUptime >= 0 else {
-            // No marker exists on first activation. Create one rather than
-            // destroying a freshly configured vault.
-            _ = writeActivityMarker()
-            return false
+            // Once the limit is active, a missing or corrupt marker is
+            // indistinguishable from tampering or an incomplete reset. Fail
+            // closed instead of silently extending the destruction deadline.
+            lastError = "Не удалось подтвердить контроль времени. Данные будут уничтожены для безопасности."
+            return true
         }
 
         return Self.shouldWipeData(limitHours: limitHours,

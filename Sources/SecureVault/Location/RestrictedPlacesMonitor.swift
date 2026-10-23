@@ -92,15 +92,24 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let offlineSnapshot = settings.checkMode == .online ? nil : location.flatMap {
             OfflinePlacesStore.shared.snapshot(for: $0, settings: settings)
         }
-        let effectiveSnapshot = offlineSnapshot ?? (settings.checkMode == .offline ? nil : snapshot)
+        // Automatic mode is online-first. A local snapshot is used only when
+        // there is no currently usable online response, while the online
+        // request is refreshed in the background. This keeps a stale offline
+        // database from permanently masking newer OSM data.
+        let onlineSnapshotIsUsable = location.flatMap { snapshot?.covers($0, settings: settings, now: Date()) } == true
+        let usingOfflineFallback = settings.checkMode == .offline
+            || (settings.checkMode == .automatic && !onlineSnapshotIsUsable && offlineSnapshot != nil)
+        let effectiveSnapshot = usingOfflineFallback ? offlineSnapshot : (settings.checkMode == .offline ? nil : snapshot)
         if settings.checkMode == .offline, offlineSnapshot == nil {
             publish(.init(blocked: true, message: "Офлайн-база запретных зон не загружена или не покрывает эту точку. Съёмка заблокирована."))
             return
         }
         var evaluated = RestrictedPlacesPolicy.evaluate(location: location, settings: settings, snapshot: effectiveSnapshot, unavailableReason: unavailableReason)
-        if offlineSnapshot != nil && !evaluated.blocked { evaluated = .init(blocked: false, message: "Офлайн-проверка: запретных зон по сохранённым данным рядом не найдено") }
+        if usingOfflineFallback && !evaluated.blocked {
+            evaluated = .init(blocked: false, message: "Офлайн-проверка: запретных зон по сохранённым данным рядом не найдено", nearby: evaluated.nearby)
+        }
         publish(evaluated)
-        if offlineSnapshot != nil || settings.checkMode == .offline { return }
+        if settings.checkMode == .offline { return }
         guard RestrictedPlaceKind.allCases.contains(where: settings.includes),
               RestrictedPlacesPolicy.locationProblem(location, settings: settings, now: Date()) == nil,
               let location, requestTask == nil, Date() >= nextRequest else { return }
@@ -111,7 +120,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         // categories, even when their protection radius is smaller (for
         // example, a police point 800 m away from the user).
         let radius = min(1500, max(1000, settings.maximumRadius + settings.accuracyLimit + 200))
-        fetch(near: location, radius: radius, settings: settings)
+        fetch(near: location, radius: radius, settings: settings, preserveDecision: effectiveSnapshot != nil)
     }
 
     private func publish(_ newValue: CaptureZoneDecision) {
@@ -306,14 +315,17 @@ final class RestrictedPlacesMonitor: ObservableObject {
         }
     }
 
-    private func fetch(near center: CLLocation, radius: Double, settings: RestrictedPlaceSettings) {
+    private func fetch(near center: CLLocation, radius: Double, settings: RestrictedPlaceSettings,
+                      preserveDecision: Bool = false) {
         let id = UUID(); requestID = id
         let query = Self.query(near: center, radius: radius, settings: settings)
         let session = self.session
         let endpoints = endpointOrder
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
         lastCheckSummary = "Выполняем запрос к OpenStreetMap через \(endpoints.count) зеркал…"
-        publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
+        if !preserveDecision {
+            publish(.init(blocked: true, message: unavailableReason + " Съёмка временно заблокирована."))
+        }
         let startedAt = Date()
         requestTask = Task { [weak self] in
             do {
