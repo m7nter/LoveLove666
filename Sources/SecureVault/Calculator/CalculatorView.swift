@@ -4,7 +4,7 @@ import AudioToolbox
 struct CalculatorView: View {
     @StateObject private var vm = CalculatorViewModel()
     @StateObject private var conversion = ConversionModel()
-    var onUnlock: (String) -> Void
+    var onUnlock: () -> Void
     var onAccess: () -> Void
     /// Legacy installs with the known compatibility code must complete setup
     /// before the hidden calculator entry can unlock the vault.
@@ -74,7 +74,7 @@ struct CalculatorView: View {
             #endif
         }
         .onChange(of: vm.shouldUnlock) { value in
-            if value { vm.shouldUnlock = false; onUnlock(vm.consumeUnlockCode() ?? "") }
+            if value { vm.shouldUnlock = false; onUnlock() }
         }
         .onChange(of: converting) { value in
             vm.allowsVaultEntry = vaultEntryEnabled && !value

@@ -13,7 +13,6 @@ final class CalculatorViewModel: ObservableObject {
     @Published var display = "0"
     @Published var expression = ""
     @Published var shouldUnlock = false
-    private(set) var pendingUnlockCode: String?
     @Published var history: [HistoryRecord] = CalculatorViewModel.loadHistory() {
         didSet {
             if let data = try? JSONEncoder().encode(history) {
@@ -175,11 +174,9 @@ final class CalculatorViewModel: ObservableObject {
                 VaultLifecycle.shared.erase(.photos); reset(); return
             }
             if canTryCode && !store.mainCode.isEmpty && store.mainCode != "2026" && pinInput == store.mainCode {
-                try? KeychainCodeStore.delete("vaultPinAttempts")
-                try? KeychainCodeStore.delete("vaultPinCooldownUntil")
                 UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
                 UserDefaults.standard.removeObject(forKey: pinCooldownKey)
-                pendingUnlockCode = pinInput; shouldUnlock = true; reset(); return
+                shouldUnlock = true; reset(); return
             }
             if (4...8).contains(pinInput.count) { recordFailedCode() }
         }
@@ -207,10 +204,6 @@ final class CalculatorViewModel: ObservableObject {
             tokens = []; input = String(result); display = Self.format(result)
             finished = true; replaceInput = true
         } catch { showError(error) }
-    }
-    func consumeUnlockCode() -> String? {
-        defer { pendingUnlockCode = nil }
-        return pendingUnlockCode
     }
     func useHistory(_ entry: HistoryRecord) {
         let result = entry.result
@@ -250,33 +243,15 @@ final class CalculatorViewModel: ObservableObject {
         display = "0"; expression = ""; tokens = []; input = ""
         finished = false; replaceInput = false; repeated = nil; pinInput = ""; pinEligible = true
     }
-    private var cooldownUntil: TimeInterval {
-        let stored = Double(KeychainCodeStore.read("vaultPinCooldownUntil")) ?? 0
-        return stored > 0 ? stored : UserDefaults.standard.double(forKey: pinCooldownKey)
-    }
-    private var canTryCode: Bool { Date().timeIntervalSince1970 >= cooldownUntil }
-    private func failedAttempts() -> [TimeInterval] {
-        let raw = KeychainCodeStore.read("vaultPinAttempts")
-        if let data = raw.data(using: .utf8), let values = try? JSONDecoder().decode([TimeInterval].self, from: data) {
-            return values
-        }
-        return (UserDefaults.standard.array(forKey: pinAttemptsKey) as? [TimeInterval]) ?? []
-    }
-    private func saveFailedAttempts(_ attempts: [TimeInterval]) {
-        guard let data = try? JSONEncoder().encode(attempts), let value = String(data: data, encoding: .utf8) else { return }
-        try? KeychainCodeStore.write(value, for: "vaultPinAttempts")
-        UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
-    }
+    private var canTryCode: Bool { Date().timeIntervalSince1970 >= UserDefaults.standard.double(forKey: pinCooldownKey) }
     private func recordFailedCode() {
         let now = Date().timeIntervalSince1970
         guard canTryCode else { return }
-        var attempts = failedAttempts().filter { now - $0 < 60 }
+        var attempts = (UserDefaults.standard.array(forKey: pinAttemptsKey) as? [TimeInterval] ?? []).filter { now - $0 < 60 }
         attempts.append(now)
         if attempts.count >= 6 {
-            try? KeychainCodeStore.write(String(now + 60), for: "vaultPinCooldownUntil")
-            try? KeychainCodeStore.delete("vaultPinAttempts")
-            UserDefaults.standard.removeObject(forKey: pinCooldownKey)
+            UserDefaults.standard.set(now + 60, forKey: pinCooldownKey)
             UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
-        } else { saveFailedAttempts(attempts) }
+        } else { UserDefaults.standard.set(attempts, forKey: pinAttemptsKey) }
     }
 }
