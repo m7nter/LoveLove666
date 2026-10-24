@@ -335,7 +335,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
                     guard let self, self.active, self.requestID == id else { return }
                     self.requestTask = nil; self.requestID = nil
                     self.rememberSuccessfulEndpoint(response.endpoint)
-                    self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: response.places)
+                    self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: response.places,
+                                          isEmptyOnlineResponse: response.places.isEmpty)
                     let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
                     let server = response.endpoint.host ?? "Overpass"
                     self.lastCheckSummary = "Успешно: найдено объектов — \(response.places.count). \(server), \(elapsed) с."

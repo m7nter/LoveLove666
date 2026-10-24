@@ -124,10 +124,14 @@ class SettingsStore: ObservableObject {
     /// 0 disables destructive protection; positive values are consecutive
     /// incorrect password entries before the protected reset starts.
     @Published var failedPasswordWipeLimit: Int = {
-        let value = UserDefaults.standard.integer(forKey: "failedPasswordWipeLimit")
+        let value = Int(KeychainCodeStore.read("failedPasswordWipeLimit"))
+            ?? UserDefaults.standard.integer(forKey: "failedPasswordWipeLimit")
         return [0, 3, 5, 10, 20].contains(value) ? value : 0
     }() {
-        didSet { UserDefaults.standard.set(failedPasswordWipeLimit, forKey: "failedPasswordWipeLimit") }
+        didSet {
+            try? KeychainCodeStore.write(String(failedPasswordWipeLimit), for: "failedPasswordWipeLimit")
+            UserDefaults.standard.removeObject(forKey: "failedPasswordWipeLimit")
+        }
     }
 
 

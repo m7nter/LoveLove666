@@ -26,6 +26,10 @@ struct RestrictedPlacesSettingsView: View {
                     Text("При отсутствии ответа OSM съёмка блокируется до успешной проверки.")
                         .font(.caption).foregroundColor(.orange)
                 }
+                Toggle("Запрещать съёмку при пустом ответе OSM", isOn: $store.restrictedPlaces.blockOnEmptyOnlineResponse)
+                    .accessibilityIdentifier("settings.restrictedPlaces.blockOnEmptyResponse")
+                Text("Выключено — корректный ответ без найденных объектов разрешает съёмку. Включите этот пункт, если при любом пустом ответе хотите ждать повторной проверки.")
+                    .font(.caption).foregroundColor(.secondary)
             }
             Section("Состояние OSM") {
                 Label(

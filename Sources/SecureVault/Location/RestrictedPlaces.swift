@@ -91,25 +91,29 @@ struct RestrictedPlaceSettings: Codable, Equatable {
     var enabled = false
     var maximumAccuracy: Double = 15
     var checkMode: RestrictedPlacesCheckMode = .automatic
+    var blockOnEmptyOnlineResponse = false
     var disabledKinds: Set<RestrictedPlaceKind> = []
     var radii: [String: Double] = [:]
 
     init(enabled: Bool = false, maximumAccuracy: Double = 15,
          checkMode: RestrictedPlacesCheckMode = .automatic,
+         blockOnEmptyOnlineResponse: Bool = false,
          disabledKinds: Set<RestrictedPlaceKind> = [], radii: [String: Double] = [:]) {
         self.enabled = enabled
         self.maximumAccuracy = maximumAccuracy
         self.checkMode = checkMode
+        self.blockOnEmptyOnlineResponse = blockOnEmptyOnlineResponse
         self.disabledKinds = disabledKinds
         self.radii = radii
     }
 
-    private enum CodingKeys: String, CodingKey { case enabled, maximumAccuracy, checkMode, disabledKinds, radii }
+    private enum CodingKeys: String, CodingKey { case enabled, maximumAccuracy, checkMode, blockOnEmptyOnlineResponse, disabledKinds, radii }
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         maximumAccuracy = try container.decodeIfPresent(Double.self, forKey: .maximumAccuracy) ?? 15
         checkMode = try container.decodeIfPresent(RestrictedPlacesCheckMode.self, forKey: .checkMode) ?? .automatic
+        blockOnEmptyOnlineResponse = try container.decodeIfPresent(Bool.self, forKey: .blockOnEmptyOnlineResponse) ?? false
         disabledKinds = try container.decodeIfPresent(Set<RestrictedPlaceKind>.self, forKey: .disabledKinds) ?? []
         radii = try container.decodeIfPresent([String: Double].self, forKey: .radii) ?? [:]
     }
@@ -281,9 +285,17 @@ struct RestrictedPlacesSnapshot {
     let radius: Double
     let fetchedAt: Date
     let places: [RestrictedPlace]
+    let isEmptyOnlineResponse: Bool
     var offlineBounds: OfflineRegionBounds? = nil
     var offlineCoverage: [OfflineRegionBounds]? = nil
     var index: RestrictedPlaceIndex? = nil
+    init(center: CLLocation, radius: Double, fetchedAt: Date, places: [RestrictedPlace],
+         offlineBounds: OfflineRegionBounds? = nil, offlineCoverage: [OfflineRegionBounds]? = nil,
+         index: RestrictedPlaceIndex? = nil, isEmptyOnlineResponse: Bool = false) {
+        self.center = center; self.radius = radius; self.fetchedAt = fetchedAt; self.places = places
+        self.isEmptyOnlineResponse = isEmptyOnlineResponse
+        self.offlineBounds = offlineBounds; self.offlineCoverage = offlineCoverage; self.index = index
+    }
     func covers(_ location: CLLocation, settings: RestrictedPlaceSettings, now: Date) -> Bool {
         let age = now.timeIntervalSince(fetchedAt)
         if let offlineCoverage {
@@ -356,6 +368,9 @@ enum RestrictedPlacesPolicy {
         if let problem = locationProblem(location, settings: settings, now: now) { return .init(blocked: true, message: problem) }
         guard let location, let snapshot, snapshot.covers(location, settings: settings, now: now) else {
             return .init(blocked: true, message: unavailableReason + " Съёмка заблокирована.")
+        }
+        if snapshot.isEmptyOnlineResponse && settings.blockOnEmptyOnlineResponse {
+            return .init(blocked: true, message: "OSM вернул пустой ответ. Включён запрет съёмки при неполных данных.")
         }
         let detailRadius = max(1000, settings.maximumRadius + location.horizontalAccuracy)
         let nearby = snapshot.index?.near(location, radius: detailRadius) ?? snapshot.places

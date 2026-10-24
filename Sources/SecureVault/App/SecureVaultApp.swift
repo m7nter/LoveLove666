@@ -26,7 +26,6 @@ struct SecureVaultApp: App {
         }
         #endif
         prepareInstallIdentity()
-        setupCrashLogging()
         PhotoExporter.cleanupTemporaryExports()
         let lifecycle = VaultLifecycle.shared
         let inactivity = InactivityTimerManager.shared
@@ -194,23 +193,6 @@ struct SecureVaultApp: App {
         return false
     }
 
-    private func setupCrashLogging() {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        try? FileManager.default.removeItem(at: caches.appendingPathComponent("crash.log"))
-        NSSetUncaughtExceptionHandler { exception in
-            guard (try? VaultGate.shared.withAccess { true }) == true else { return }
-            let log = """
-            CRASH: \(exception.name.rawValue)
-            Reason: \(exception.reason ?? "unknown")
-            Stack: \(exception.callStackSymbols.joined(separator: "\n"))
-            """
-            let paths = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true)
-            if let cachePath = paths.first {
-                let logURL = URL(fileURLWithPath: cachePath).appendingPathComponent("crash.log")
-                try? Data(log.utf8).write(to: logURL, options: [.atomic, .completeFileProtection])
-            }
-        }
-    }
 }
 
 struct RootView: View {

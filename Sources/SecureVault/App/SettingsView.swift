@@ -324,6 +324,8 @@ struct SettingsView: View {
                             .foregroundColor(.red)
                     }
 
+                    Text("Защита от перебора пароля")
+                        .font(.headline)
                     Picker("Стирание после неверных паролей", selection: bruteForceLimitBinding) {
                         Text("Выключено").tag(0)
                         Text("3 попытки").tag(3)

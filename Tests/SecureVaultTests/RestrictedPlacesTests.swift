@@ -57,6 +57,16 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: location(0.02), settings: enabled, snapshot: snapshot([]), now: now).blocked)
     }
     func testSuccessfulEmptyResponseAllowsCapture() { XCTAssertFalse(decision(location()).blocked) }
+    func testEmptyOnlineResponseCanBeConfiguredToBlockCapture() {
+        var settings = enabled
+        settings.blockOnEmptyOnlineResponse = true
+        let empty = RestrictedPlacesSnapshot(center: location(), radius: 1_100, fetchedAt: now,
+                                              places: [], isEmptyOnlineResponse: true)
+        let result = RestrictedPlacesPolicy.evaluate(location: location(), settings: settings,
+                                                     snapshot: empty, now: now)
+        XCTAssertTrue(result.blocked)
+        XCTAssertTrue(result.message.contains("пустой ответ"))
+    }
     func testPointRadiusIncludesGPSUncertainty() {
         let place = point(0.00060)
         let distance = place.distance(from: location())
