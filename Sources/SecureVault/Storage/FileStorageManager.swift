@@ -108,11 +108,11 @@ final class FileStorageManager {
         return (daily, total)
     }
 
-    private func saveUnlocked(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil, cameraOnly: Bool = false) -> URL? {
+    private func saveUnlocked(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil) -> URL? {
         lock.lock(); defer { lock.unlock() }
         let event = context ?? newEvent()
         guard Self.validFolder(event.folder), let jpeg = image.jpegData(compressionQuality: 0.92),
-              let encrypted = cameraOnly ? CryptoManager.encryptForCamera(jpeg) : CryptoManager.encrypt(jpeg) else { return nil }
+              let encrypted = CryptoManager.encrypt(jpeg) else { return nil }
         let date = event.capturedAt ?? Date()
         let numbers = allocateNumbers(date: date)
         var meta = PhotoMeta(latitude: location?.coordinate.latitude ?? 0,
@@ -132,7 +132,7 @@ final class FileStorageManager {
             markExcludedFromBackup(dir)
             try encrypted.write(to: url, options: [.atomic, .completeFileProtection])
             markExcludedFromBackup(url)
-            do { try saveMeta(meta, for: url, cameraOnly: cameraOnly) }
+            do { try saveMeta(meta, for: url) }
             catch { try? fm.removeItem(at: url); throw error }
             cachedLatestURL = nil
             cachedLatestLocation = nil
@@ -229,9 +229,9 @@ final class FileStorageManager {
             return legacy
         } catch { return nil }
     }
-    private func saveMeta(_ meta: PhotoMeta, for url: URL, cameraOnly: Bool = false) throws {
+    private func saveMeta(_ meta: PhotoMeta, for url: URL) throws {
         let data = try JSONEncoder().encode(meta)
-        guard let encrypted = cameraOnly ? CryptoManager.encryptForCamera(data) : CryptoManager.encrypt(data) else { throw CocoaError(.fileWriteUnknown) }
+        guard let encrypted = CryptoManager.encrypt(data) else { throw CocoaError(.fileWriteUnknown) }
         try encrypted.write(to: metaURL(for: url), options: [.atomic, .completeFileProtection])
         markExcludedFromBackup(metaURL(for: url))
     }
@@ -435,8 +435,8 @@ final class FileStorageManager {
         // Called only from an authorized current camera session.
         (try? VaultGate.shared.withAccess { newEventUnlocked() }) ?? CaptureContext(eventID: UUID(), folder: "Без режима", expectedCount: 1, index: 1, eventNumber: 0, generation: -1)
     }
-    func save(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil, cameraOnly: Bool = false) -> URL? {
-        try? VaultGate.shared.withAccess(generation: context?.generation) { saveUnlocked(image: image, location: location, context: context, cameraOnly: cameraOnly) }
+    func save(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil) -> URL? {
+        try? VaultGate.shared.withAccess(generation: context?.generation) { saveUnlocked(image: image, location: location, context: context) }
     }
     func loadAll() -> [URL] { (try? VaultGate.shared.withAccess { loadAllUnlocked() }) ?? [] }
     func loadMeta(for url: URL) -> PhotoMeta? { try? VaultGate.shared.withAccess { loadMetaUnlocked(for: url) } }
