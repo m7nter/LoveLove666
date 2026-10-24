@@ -174,13 +174,13 @@ final class CalculatorViewModel: ObservableObject {
                 VaultLifecycle.shared.erase(.photos); reset(); return
             }
             if canTryCode && !store.mainCode.isEmpty && store.mainCode != "2026" && pinInput == store.mainCode {
-                try? KeychainCodeStore.delete("vaultPinAttempts")
-                try? KeychainCodeStore.delete("vaultPinCooldownUntil")
-                UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
-                UserDefaults.standard.removeObject(forKey: pinCooldownKey)
+                store.resetPasswordFailureState()
                 shouldUnlock = true; reset(); return
             }
-            if (4...8).contains(pinInput.count) { recordFailedCode() }
+            if (4...8).contains(pinInput.count), recordFailedCode() {
+                reset()
+                return
+            }
         }
         invalidatePIN()
         if finished, let repeated, let value = Double(input) {
@@ -264,9 +264,17 @@ final class CalculatorViewModel: ObservableObject {
         try? KeychainCodeStore.write(value, for: "vaultPinAttempts")
         UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
     }
-    private func recordFailedCode() {
+    @discardableResult
+    private func recordFailedCode() -> Bool {
         let now = Date().timeIntervalSince1970
-        guard canTryCode else { return }
+        guard canTryCode else { return false }
+        let failureCount = (Int(KeychainCodeStore.read("vaultPinFailureCount")) ?? 0) + 1
+        try? KeychainCodeStore.write(String(failureCount), for: "vaultPinFailureCount")
+        let limit = SettingsStore.shared.failedPasswordWipeLimit
+        if limit > 0 && failureCount >= limit {
+            VaultLifecycle.shared.erase(.reset)
+            return true
+        }
         var attempts = failedAttempts().filter { now - $0 < 60 }
         attempts.append(now)
         if attempts.count >= 6 {
@@ -275,5 +283,6 @@ final class CalculatorViewModel: ObservableObject {
             UserDefaults.standard.removeObject(forKey: pinCooldownKey)
             UserDefaults.standard.removeObject(forKey: pinAttemptsKey)
         } else { saveFailedAttempts(attempts) }
+        return false
     }
 }

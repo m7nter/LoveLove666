@@ -121,6 +121,15 @@ class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(clusterMapPins, forKey: "clusterMapPins") }
     }
 
+    /// 0 disables destructive protection; positive values are consecutive
+    /// incorrect password entries before the protected reset starts.
+    @Published var failedPasswordWipeLimit: Int = {
+        let value = UserDefaults.standard.integer(forKey: "failedPasswordWipeLimit")
+        return [0, 3, 5, 10, 20].contains(value) ? value : 0
+    }() {
+        didSet { UserDefaults.standard.set(failedPasswordWipeLimit, forKey: "failedPasswordWipeLimit") }
+    }
+
 
     private let avatarKey = "userAvatar"
 
@@ -210,7 +219,16 @@ class SettingsStore: ObservableObject {
         accuracyProtectionEnabled = false; accuracyThreshold = 20
         distanceTrackingEnabled = false; minDistanceThreshold = 10
         volumeButtonCaptureEnabled = false; exportAsZip = true; clusterMapPins = true
+        failedPasswordWipeLimit = 0
         actionButtonMode = .off
         InactivityTimerManager.shared.disable()
+    }
+
+    func resetPasswordFailureState() {
+        try? KeychainCodeStore.delete("vaultPinFailureCount")
+        try? KeychainCodeStore.delete("vaultPinAttempts")
+        try? KeychainCodeStore.delete("vaultPinCooldownUntil")
+        UserDefaults.standard.removeObject(forKey: "vaultPinAttempts")
+        UserDefaults.standard.removeObject(forKey: "vaultPinCooldownUntil")
     }
 }

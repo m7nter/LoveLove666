@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var newMode = ""
     @State private var showInactivityConfirmation = false
     @State private var pendingInactivityHours = 0
+    @State private var showBruteForceConfirmation = false
+    @State private var pendingBruteForceLimit = 0
 
     var body: some View {
         NavigationView {
@@ -322,6 +324,17 @@ struct SettingsView: View {
                             .foregroundColor(.red)
                     }
 
+                    Picker("Стирание после неверных паролей", selection: bruteForceLimitBinding) {
+                        Text("Выключено").tag(0)
+                        Text("3 попытки").tag(3)
+                        Text("5 попыток").tag(5)
+                        Text("10 попыток").tag(10)
+                        Text("20 попыток").tag(20)
+                    }
+                    .accessibilityIdentifier("settings.failedPasswordWipeLimit")
+                    Text("Функция «Защита от перебора пароля» считает неправильные попытки ввода основного пароля. После выбранного лимита запускается полное уничтожение хранилища.")
+                        .font(.caption).foregroundColor(.red)
+
                 }
 
                 Section("Автоматическое уничтожение") {
@@ -392,6 +405,12 @@ struct SettingsView: View {
                 _ = inactivity.activate(hours: pendingInactivityHours)
             }
         }
+        .sheet(isPresented: $showBruteForceConfirmation) {
+            BruteForceConfirmationView(attempts: pendingBruteForceLimit) {
+                store.failedPasswordWipeLimit = pendingBruteForceLimit
+                store.resetPasswordFailureState()
+            }
+        }
         .alert("Настроить Action Button?", isPresented: $showActionButtonWarning) {
             Button("Включить", role: pendingActionMode.destructive ? .destructive : nil) {
                 store.actionButtonMode = pendingActionMode
@@ -430,6 +449,20 @@ struct SettingsView: View {
             set: { value in
                 pendingInactivityHours = value
                 showInactivityConfirmation = true
+            })
+    }
+
+    private var bruteForceLimitBinding: Binding<Int> {
+        Binding(
+            get: { store.failedPasswordWipeLimit },
+            set: { value in
+                if value == 0 {
+                    store.failedPasswordWipeLimit = 0
+                    store.resetPasswordFailureState()
+                } else {
+                    pendingBruteForceLimit = value
+                    showBruteForceConfirmation = true
+                }
             })
     }
 }

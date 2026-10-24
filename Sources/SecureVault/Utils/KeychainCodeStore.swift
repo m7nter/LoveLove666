@@ -6,7 +6,7 @@ import Security
 enum KeychainCodeStore {
     private static let service = "com.securevault.accesscodes"
     private static let accounts = ["mainCode", "vaultCode", "kamikazeCode", "actionButtonToken",
-                                   "vaultPinAttempts", "vaultPinCooldownUntil"]
+                                   "vaultPinAttempts", "vaultPinCooldownUntil", "vaultPinFailureCount"]
     private static let migrationPrefix = "legacyMigrated."
 
     private static func query(_ account: String) -> [String: Any] {
