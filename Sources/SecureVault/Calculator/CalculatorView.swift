@@ -74,7 +74,11 @@ struct CalculatorView: View {
             #endif
         }
         .onChange(of: vm.shouldUnlock) { value in
-            if value { vm.shouldUnlock = false; onUnlock(vm.consumeUnlockCode() ?? "") }
+            if value {
+                let pin = vm.consumeUnlockCode() ?? ""
+                vm.shouldUnlock = false
+                onUnlock(pin)
+            }
         }
         .onChange(of: converting) { value in
             vm.allowsVaultEntry = vaultEntryEnabled && !value

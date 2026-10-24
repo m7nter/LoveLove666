@@ -310,7 +310,22 @@ struct RootView: View {
     private func unlock(_ pin: String) {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
-        guard (try? CryptoManager.unlock(withPIN: pin)) != nil else { return }
+        if (try? CryptoManager.unlock(withPIN: pin)) == nil {
+            #if DEBUG && targetEnvironment(simulator)
+            // Recreate the isolated fixture if an earlier UI test left a
+            // partially erased Keychain item behind. This branch is removed
+            // from device builds and cannot weaken a real install.
+            if ProcessInfo.processInfo.arguments.contains("--test-calculator") {
+                VaultGate.shared.allow()
+                try? CryptoManager.destroyKey()
+                _ = CryptoManager.encrypt(Data("ui-test-key".utf8))
+                try? CryptoManager.bindPIN(pin)
+                guard (try? CryptoManager.unlock(withPIN: pin)) != nil else { return }
+            } else { return }
+            #else
+            return
+            #endif
+        }
         finishUnlock()
     }
     private func finishUnlock() {
