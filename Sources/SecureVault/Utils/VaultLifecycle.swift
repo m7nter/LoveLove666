@@ -190,7 +190,8 @@ final class VaultLifecycle: ObservableObject {
     private let queue = DispatchQueue(label: "SecureVault.erase", qos: .userInitiated)
 
     private init() {
-        disabled = isBruteForceLocked || UserDefaults.standard.bool(forKey: "vaultDisabled")
+        disabled = FileManager.default.fileExists(atPath: VaultDirectories.application.bruteForceLockMarker.path)
+            || UserDefaults.standard.bool(forKey: "vaultDisabled")
             || FileManager.default.fileExists(atPath: VaultDirectories.application.disabledMarker.path)
         generation = VaultGate.shared.generation
         let recorded = UserDefaults.standard.string(forKey: "pendingEraseMode")
