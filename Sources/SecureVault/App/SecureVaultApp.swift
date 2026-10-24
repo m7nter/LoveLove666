@@ -223,7 +223,7 @@ struct RootView: View {
                     Button("Калькулятор") { showAccess = false }
                 }.padding(24)
             } else if showAccess {
-                VaultAccessView(isSetup: needsSetup, onAuthorized: { unlockAfterSetup() },
+                VaultAccessView(isSetup: needsSetup, onAuthorized: { finishUnlock() },
                     onCalculator: { showAccess = false })
             } else if isCameraOnly {
                 VaultView(cameraOnly: true, onLock: lock)
@@ -296,12 +296,9 @@ struct RootView: View {
         guard (try? CryptoManager.unlock(withPIN: pin)) != nil else { return }
         finishUnlock()
     }
-    private func unlockAfterSetup() {
+    private func finishUnlock() {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
-        finishUnlock()
-    }
-    private func finishUnlock() {
         guard InactivityTimerManager.shared.recordActivity() else {
             VaultLifecycle.shared.erase(.reset)
             return
