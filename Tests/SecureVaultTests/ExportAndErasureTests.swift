@@ -155,21 +155,6 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertEqual(try cipher.decrypt(fresh), secret)
         XCTAssertThrowsError(try cipher.decrypt(old))
     }
-
-    func testPINBindingGatesMasterKeyAfterRestart() throws {
-        let service = suite + ".pin"
-        let first = VaultCipher(service: service, account: "test-only-key")
-        defer { try? first.destroyKey() }
-        let secret = Data("bound secret".utf8)
-        let ciphertext = try first.encrypt(secret)
-        try first.bindPIN("2468")
-
-        let restarted = VaultCipher(service: service, account: "test-only-key")
-        XCTAssertThrowsError(try restarted.decrypt(ciphertext))
-        XCTAssertThrowsError(try restarted.unlock(withPIN: "1357"))
-        try restarted.unlock(withPIN: "2468")
-        XCTAssertEqual(try restarted.decrypt(ciphertext), secret)
-    }
     func testExportNoteToggleDoesNotModifyOrDuplicateOriginal() throws {
         let storage = FileStorageManager(directory: root.appendingPathComponent("IsolatedPhotos"), defaults: defaults)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1

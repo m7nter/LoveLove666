@@ -13,7 +13,6 @@ final class CalculatorViewModel: ObservableObject {
     @Published var display = "0"
     @Published var expression = ""
     @Published var shouldUnlock = false
-    private(set) var pendingUnlockCode: String?
     @Published var history: [HistoryRecord] = CalculatorViewModel.loadHistory() {
         didSet {
             if let data = try? JSONEncoder().encode(history) {
@@ -176,7 +175,7 @@ final class CalculatorViewModel: ObservableObject {
             }
             if canTryCode && !store.mainCode.isEmpty && store.mainCode != "2026" && pinInput == store.mainCode {
                 store.resetPasswordFailureState()
-                pendingUnlockCode = pinInput; shouldUnlock = true; reset(); return
+                shouldUnlock = true; reset(); return
             }
             if (4...8).contains(pinInput.count), recordFailedCode() {
                 reset()
@@ -213,10 +212,6 @@ final class CalculatorViewModel: ObservableObject {
         guard
               let value = Double(result.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: ".")) else { return }
         reset(); invalidatePIN(); setValue(value)
-    }
-    func consumeUnlockCode() -> String? {
-        defer { pendingUnlockCode = nil }
-        return pendingUnlockCode
     }
 
     private static func loadHistory() -> [HistoryRecord] {
