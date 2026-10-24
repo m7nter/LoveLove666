@@ -11,6 +11,10 @@ struct RestrictedPlacesSettingsView: View {
             Section {
                 Toggle("Контроль запретных мест", isOn: $store.restrictedPlaces.enabled)
                     .accessibilityIdentifier("settings.restrictedPlaces.enabled")
+                NavigationLink("Офлайн-карты и запретные места", destination: OfflineMapsView())
+                    .accessibilityIdentifier("settings.offlineMaps")
+                Text("Скачайте регион заранее: карта и база зон сохраняются отдельно и работают без интернета при хорошем GPS.")
+                    .font(.caption).foregroundColor(.secondary)
             } footer: {
                 Text("Во время работы камеры проверяем ближайшие территории по OpenStreetMap. В запретной зоне съёмка блокируется, сверху отображается причина и расстояние до границы.")
             }
@@ -49,12 +53,6 @@ struct RestrictedPlacesSettingsView: View {
                     ForEach([5, 10, 15, 20, 30, 50], id: \.self) { Text("\($0) м").tag(Double($0)) }
                 }
                 Text("По умолчанию ±15 м и хуже — съёмка запрещена. Нет свежего GPS или данных о территории — съёмка также запрещена. У границы учитывается запас на погрешность GPS.")
-                    .font(.caption).foregroundColor(.secondary)
-            }
-            Section("Без интернета") {
-                NavigationLink("Офлайн-карты и запретные места", destination: OfflineMapsView())
-                    .accessibilityIdentifier("settings.offlineMaps")
-                Text("Скачайте регион заранее: карта и база зон сохраняются отдельно. В скачанной области контроль работает без интернета при хорошем GPS.")
                     .font(.caption).foregroundColor(.secondary)
             }
             Section("Типы мест и расстояния") {
