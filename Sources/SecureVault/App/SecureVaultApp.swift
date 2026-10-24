@@ -127,7 +127,7 @@ struct SecureVaultApp: App {
                 else if isUnlocked { startTimer() }
             }
             .onOpenURL { url in
-                guard !lifecycle.blocksUI, let action = ActionButtonRouter.resolve(url,
+                guard !lifecycle.isBruteForceLocked, !lifecycle.blocksUI, let action = ActionButtonRouter.resolve(url,
                     mode: SettingsStore.shared.actionButtonMode, token: SettingsStore.shared.actionButtonToken) else { return }
                 stopTimer()
                 isUnlocked = false
@@ -248,7 +248,7 @@ struct RootView: View {
                 VaultView(onLock: lock)
             } else {
                 CalculatorView(onUnlock: unlock, onAccess: openHiddenAccess,
-                               vaultEntryEnabled: !needsSetup)
+                               vaultEntryEnabled: !needsSetup && !VaultLifecycle.shared.isBruteForceLocked)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -275,6 +275,13 @@ struct RootView: View {
     }
 
     private func refreshAccess(initial: Bool = false) {
+        if VaultLifecycle.shared.isBruteForceLocked {
+            needsSetup = false
+            accessError = nil
+            accessChecked = true
+            showAccess = false
+            return
+        }
         do {
             let code = try KeychainCodeStore.readChecked("mainCode")
             needsSetup = code.isEmpty || code == "2026"
@@ -303,11 +310,13 @@ struct RootView: View {
         #endif
     }
     private func openHiddenAccess() {
+        guard !VaultLifecycle.shared.isBruteForceLocked else { return }
         guard !VaultLifecycle.shared.blocksUI else { onBlockedAccess(); return }
         refreshAccess()
         showAccess = true
     }
     private func unlock(_ pin: String) {
+        guard !VaultLifecycle.shared.isBruteForceLocked else { return }
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
         if (try? CryptoManager.unlock(withPIN: pin)) == nil {
@@ -329,6 +338,7 @@ struct RootView: View {
         finishUnlock()
     }
     private func finishUnlock() {
+        guard !VaultLifecycle.shared.isBruteForceLocked else { return }
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
         guard InactivityTimerManager.shared.recordActivity() else {

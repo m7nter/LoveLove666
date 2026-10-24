@@ -277,7 +277,7 @@ final class CalculatorViewModel: ObservableObject {
         try? KeychainCodeStore.write(String(failureCount), for: "vaultPinFailureCount")
         let limit = SettingsStore.shared.failedPasswordWipeLimit
         if limit > 0 && failureCount >= limit {
-            VaultLifecycle.shared.erase(.reset)
+            VaultLifecycle.shared.lockAfterBruteForce()
             return true
         }
         var attempts = failedAttempts().filter { now - $0 < 60 }

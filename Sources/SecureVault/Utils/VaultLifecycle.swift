@@ -41,6 +41,7 @@ final class VaultGate {
     static let shared = VaultGate(blocked: UserDefaults.standard.bool(forKey: "vaultDisabled")
         || UserDefaults.standard.string(forKey: "pendingEraseMode") != nil
         || FileManager.default.fileExists(atPath: VaultDirectories.application.disabledMarker.path)
+        || FileManager.default.fileExists(atPath: VaultDirectories.application.bruteForceLockMarker.path)
         || FileManager.default.fileExists(atPath: VaultDirectories.application.pendingMarker.path),
         generation: UserDefaults.standard.integer(forKey: "vaultGeneration"))
     private let lock = NSRecursiveLock()
@@ -60,6 +61,7 @@ final class VaultGate {
         lock.lock(); defer { lock.unlock() }
         guard !UserDefaults.standard.bool(forKey: "vaultDisabled"),
               !FileManager.default.fileExists(atPath: VaultDirectories.application.disabledMarker.path),
+              !FileManager.default.fileExists(atPath: VaultDirectories.application.bruteForceLockMarker.path),
               UserDefaults.standard.string(forKey: "pendingEraseMode") == nil,
               !FileManager.default.fileExists(atPath: VaultDirectories.application.pendingMarker.path) else { return }
         blocked = false
@@ -82,6 +84,7 @@ struct VaultDirectories {
     }
     var disabledMarker: URL { support.appendingPathComponent("VaultDisabled.flag") }
     var pendingMarker: URL { support.appendingPathComponent("VaultErase.pending") }
+    var bruteForceLockMarker: URL { support.appendingPathComponent("VaultBruteForce.locked") }
 }
 
 struct VaultEraseService {
@@ -102,16 +105,17 @@ struct VaultEraseService {
 
     func prepare(_ mode: ActionButtonMode, generation: Int) throws {
         guard mode.destructive else { throw CocoaError(.featureUnsupported) }
+        let permanentLock = fm.fileExists(atPath: directories.bruteForceLockMarker.path)
         defaults.set(mode.rawValue, forKey: "pendingEraseMode")
         defaults.set(generation, forKey: "vaultGeneration")
-        if mode == .disable { defaults.set(true, forKey: "vaultDisabled") }
+        if mode == .disable || permanentLock { defaults.set(true, forKey: "vaultDisabled") }
         // Persist the deny flag before any file work. A failed marker write
         // must not reopen the vault on the next launch.
         guard defaults.synchronize() else { throw CocoaError(.fileWriteUnknown) }
         try fm.createDirectory(at: directories.support, withIntermediateDirectories: true)
         try Data(mode.rawValue.utf8).write(to: directories.pendingMarker,
                                            options: [.atomic, .completeFileProtection])
-        if mode == .disable {
+        if mode == .disable || permanentLock {
             try Data("disabled".utf8).write(to: directories.disabledMarker,
                                              options: [.atomic, .completeFileProtection])
         }
@@ -123,6 +127,7 @@ struct VaultEraseService {
 
     func erase(_ mode: ActionButtonMode, generation: Int, cryptographicResetPrepared: Bool = false) throws {
         guard mode.destructive else { throw CocoaError(.featureUnsupported) }
+        let permanentLock = fm.fileExists(atPath: directories.bruteForceLockMarker.path)
         // Destroy the key first; a failed deletion keeps the application closed.
         if !cryptographicResetPrepared { try prepareCryptographicReset(mode) }
         var failures: [Error] = []
@@ -148,10 +153,13 @@ struct VaultEraseService {
         // Recovery is a full reset, never an unlock of the old material.
         // Keep the deny marker until keys, codes and all files are erased.
         // The pending marker continues to block access if this step fails.
-        if mode != .photos, fm.fileExists(atPath: directories.disabledMarker.path) {
+        if mode != .photos, !permanentLock, fm.fileExists(atPath: directories.disabledMarker.path) {
             try fm.removeItem(at: directories.disabledMarker)
         }
-        if mode != .photos { defaults.removePersistentDomain(forName: defaultsDomain) }
+        if mode != .photos {
+            defaults.removePersistentDomain(forName: defaultsDomain)
+            if permanentLock { defaults.set(true, forKey: "vaultDisabled") }
+        }
         defaults.removeObject(forKey: "pendingCaptureEvent")
         if mode != .photos { ProtectedPreferences.removeAll() }
         else { ProtectedPreferences.remove(forKey: "pendingCaptureEvent") }
@@ -172,14 +180,17 @@ final class VaultLifecycle: ObservableObject {
     @Published private(set) var disabled: Bool
     @Published private(set) var lastError: String?
     @Published private(set) var generation: Int
-    var blocksUI: Bool { disabled || isErasing || lastError != nil }
+    // A brute-force lock intentionally keeps the public surface looking like
+    // the calculator. It blocks the vault gate without exposing its reason.
+    var blocksUI: Bool { !isBruteForceLocked && (disabled || isErasing || lastError != nil) }
     var canRetry: Bool { pendingMode != nil }
+    var isBruteForceLocked: Bool { FileManager.default.fileExists(atPath: directories.bruteForceLockMarker.path) }
     private let directories = VaultDirectories.application
     private var pendingMode: ActionButtonMode?
     private let queue = DispatchQueue(label: "SecureVault.erase", qos: .userInitiated)
 
     private init() {
-        disabled = UserDefaults.standard.bool(forKey: "vaultDisabled")
+        disabled = isBruteForceLocked || UserDefaults.standard.bool(forKey: "vaultDisabled")
             || FileManager.default.fileExists(atPath: VaultDirectories.application.disabledMarker.path)
         generation = VaultGate.shared.generation
         let recorded = UserDefaults.standard.string(forKey: "pendingEraseMode")
@@ -188,18 +199,22 @@ final class VaultLifecycle: ObservableObject {
         pendingMode = recovered?.destructive == true ? recovered : nil
         let hasRecord = recorded != nil || FileManager.default.fileExists(atPath: VaultDirectories.application.pendingMarker.path)
         if disabled || hasRecord { _ = VaultGate.shared.revoke() }
-        if pendingMode != nil { lastError = "Нужно завершить удаление данных." }
+        if isBruteForceLocked {
+            // Keep this state silent: the public UI must remain a calculator.
+            lastError = nil
+        } else if pendingMode != nil { lastError = "Нужно завершить удаление данных." }
         else if hasRecord { lastError = "Запись удаления повреждена. Доступ к приложению закрыт." }
     }
     // Legacy permanent locks and corrupt erase records become a fresh setup.
     // Complete erasure first; never expose old material by merely clearing flags.
     func resumePendingErase() {
         if let mode = pendingMode { erase(mode) }
+        else if isBruteForceLocked { return }
         else if disabled || lastError != nil { erase(.reset) }
     }
     func retry() { if let mode = pendingMode { erase(mode) } }
     func erase(_ mode: ActionButtonMode) {
-        guard mode.destructive, !isErasing else { return }
+        guard mode.destructive, !isErasing, (!isBruteForceLocked || mode == .disable) else { return }
         isErasing = true; lastError = nil; pendingMode = mode
         let epoch = VaultGate.shared.revoke()
         generation = epoch
@@ -208,7 +223,8 @@ final class VaultLifecycle: ObservableObject {
             defaultsDomain: Bundle.main.bundleIdentifier ?? "com.securevault.app",
             destroyKey: { try CryptoManager.destroyKey() },
             destroyCodes: { try KeychainCodeStore.deleteAll() },
-            preservedSupportEntries: [Bundle.main.bundleIdentifier ?? "com.securevault.app"])
+            preservedSupportEntries: [Bundle.main.bundleIdentifier ?? "com.securevault.app",
+                                      directories.bruteForceLockMarker.lastPathComponent])
         NotificationCenter.default.post(name: .vaultWillErase, object: nil)
         do {
             try service.prepare(mode, generation: epoch)
@@ -235,6 +251,22 @@ final class VaultLifecycle: ObservableObject {
         }
     }
 
+    /// Wipes the vault after the configured wrong-PIN limit and leaves an
+    /// internal container marker. The normal hidden setup cannot clear it.
+    func lockAfterBruteForce() {
+        guard !isErasing, !isBruteForceLocked else { return }
+        do {
+            try FileManager.default.createDirectory(at: directories.support, withIntermediateDirectories: true)
+            try Data("brute-force-lock".utf8).write(to: directories.bruteForceLockMarker,
+                                                    options: [.atomic, .completeFileProtection])
+            erase(.disable)
+        } catch {
+            disabled = true
+            lastError = ""
+            _ = VaultGate.shared.revoke()
+        }
+    }
+
     private func erasePreparedFiles(_ service: VaultEraseService, mode: ActionButtonMode, generation: Int) {
         queue.async {
             let result = Result {
@@ -248,11 +280,16 @@ final class VaultLifecycle: ObservableObject {
                 case .success:
                     self.pendingMode = nil
                     if mode != .photos {
-                        self.disabled = false
                         SettingsStore.shared.resetToFactory()
+                        if self.isBruteForceLocked {
+                            self.disabled = true
+                            self.lastError = nil
+                        } else {
+                            self.disabled = false
+                            VaultGate.shared.allow()
+                        }
                     }
                     NotesManager.shared.lastError = nil
-                    VaultGate.shared.allow()
                 case .failure(let error):
                     self.lastError = "Удаление не завершено: \(error.localizedDescription)"
                 }
