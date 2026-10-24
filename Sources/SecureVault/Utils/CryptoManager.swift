@@ -91,7 +91,7 @@ enum CryptoManager {
     private static func envelope(_ purpose: VaultKeyPurpose, _ payload: Data) -> Data {
         var result = magic
         result.append(purpose == .vault ? 0 : 1)
-        result.append(payload)
+        result.append(contentsOf: payload)
         return result
     }
     private static func unwrap(_ data: Data) -> (VaultKeyPurpose, Data)? {
