@@ -308,9 +308,10 @@ struct RootView: View {
         refreshAccess()
         showAccess = true
     }
-    private func unlock() {
+    private func unlock(_ pin: String) {
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
+        guard (try? CryptoManager.unlock(withPIN: pin)) != nil else { return }
         guard InactivityTimerManager.shared.recordActivity() else {
             VaultLifecycle.shared.erase(.reset)
             return

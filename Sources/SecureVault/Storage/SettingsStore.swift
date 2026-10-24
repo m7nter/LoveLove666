@@ -177,6 +177,7 @@ class SettingsStore: ObservableObject {
 
     private func saveCode(_ code: String, for account: String) {
         do {
+            if account == "mainCode", !code.isEmpty { try CryptoManager.rebindPIN(code) }
             try KeychainCodeStore.write(code, for: account)
             securityError = nil
         } catch {
