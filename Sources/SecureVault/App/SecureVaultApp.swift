@@ -26,6 +26,15 @@ struct SecureVaultApp: App {
         }
         #endif
         prepareInstallIdentity()
+        #if DEBUG && targetEnvironment(simulator)
+        // The calculator UI fixture must also initialize the PIN-bound key;
+        // production launches never execute this path.
+        if ProcessInfo.processInfo.arguments.contains("--test-calculator") {
+            try? CryptoManager.destroyKey()
+            _ = CryptoManager.encrypt(Data("ui-test-key".utf8))
+            try? CryptoManager.bindPIN("1357")
+        }
+        #endif
         PhotoExporter.cleanupTemporaryExports()
         let lifecycle = VaultLifecycle.shared
         let inactivity = InactivityTimerManager.shared
