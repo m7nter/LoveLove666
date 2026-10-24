@@ -78,6 +78,19 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: paths.documents.path), [])
         XCTAssertEqual(keyDeletions, 1)
     }
+    func testBruteForceErasePreservesSilentLockMarker() throws {
+        try write("locked", to: paths.bruteForceLockMarker)
+        let erase = VaultEraseService(directories: paths, defaults: defaults, defaultsDomain: suite,
+            destroyKey: { self.keyDeletions += 1 },
+            preservedSupportEntries: [paths.bruteForceLockMarker.lastPathComponent])
+        try erase.prepare(.disable, generation: 15)
+        try erase.erase(.disable, generation: 15)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.bruteForceLockMarker.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
+        XCTAssertNil(defaults.string(forKey: "pendingEraseMode"))
+        XCTAssertEqual(keyDeletions, 1)
+    }
     func testFailedKeyDeletionKeepsRecoveryRecordAndLock() throws {
         let erase = service(destroy: { throw CocoaError(.fileWriteNoPermission) })
         try erase.prepare(.disable, generation: 13)
