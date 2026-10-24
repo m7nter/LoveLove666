@@ -93,7 +93,10 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(territories.isHittable); territories.tap()
         let offline = app.buttons["settings.offlineMaps"]
-        for _ in 0..<4 { if offline.isHittable { break }; app.swipeUp() }
+        // The iOS 26 Form can place this section below the fold; keep
+        // scrolling until the link is actually hittable instead of relying on
+        // a fixed number of swipes.
+        for _ in 0..<12 { if offline.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(offline.isHittable); offline.tap()
         let search = app.textFields["offline.regionSearch"]
         for _ in 0..<4 { if search.isHittable { break }; app.swipeUp() }
