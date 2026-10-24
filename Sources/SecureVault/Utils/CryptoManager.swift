@@ -50,7 +50,10 @@ final class VaultCipher {
         if status == errSecSuccess {
             guard let attributes = result as? [String: Any], let data = attributes[kSecValueData as String] as? Data, data.count == 32 else { throw CocoaError(.fileReadCorruptFile) }
             if (attributes[kSecAttrAccessible as String] as? String) != (kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String) { let updated = SecItemUpdate(query as CFDictionary, [kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly] as CFDictionary); guard updated == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(updated)) } }
-            if pinBindingEnabled { guard pinUnlocked || (try readPINEnvelope() == nil) else { throw CocoaError(.fileReadNoPermission) } }
+            if pinBindingEnabled && !pinUnlocked {
+                let envelope = try readPINEnvelope()
+                guard envelope == nil else { throw CocoaError(.fileReadNoPermission) }
+            }
             let value = SymmetricKey(data: data); cachedKey = value; return value
         }
         guard status == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
