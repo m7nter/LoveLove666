@@ -155,6 +155,21 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertEqual(try cipher.decrypt(fresh), secret)
         XCTAssertThrowsError(try cipher.decrypt(old))
     }
+
+    func testCameraKeyRemainsSeparateFromPINBoundVaultKey() throws {
+        let service = suite + ".separate-keys"
+        let vault = VaultCipher(service: service, account: "vault", pinBindingEnabled: true)
+        let camera = VaultCipher(service: service, account: "camera")
+        defer { try? vault.destroyKey(); try? camera.destroyKey() }
+        let vaultData = try vault.encrypt(Data("vault".utf8))
+        let cameraData = try camera.encrypt(Data("camera".utf8))
+        try vault.bindPIN("2468")
+        let restartedVault = VaultCipher(service: service, account: "vault", pinBindingEnabled: true)
+        XCTAssertThrowsError(try restartedVault.decrypt(vaultData))
+        try restartedVault.unlock(withPIN: "2468")
+        XCTAssertEqual(try restartedVault.decrypt(vaultData), Data("vault".utf8))
+        XCTAssertEqual(try camera.decrypt(cameraData), Data("camera".utf8))
+    }
     func testExportNoteToggleDoesNotModifyOrDuplicateOriginal() throws {
         let storage = FileStorageManager(directory: root.appendingPathComponent("IsolatedPhotos"), defaults: defaults)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
