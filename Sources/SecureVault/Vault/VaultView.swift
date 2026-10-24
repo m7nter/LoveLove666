@@ -117,7 +117,7 @@ struct VaultView: View {
             cameraVM.isCapturing = true
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = WatermarkRenderer.apply(to: image, location: location, heading: heading, labelText: label)
-                let saved = FileStorageManager.shared.save(image: result, location: location, context: context) != nil
+                let saved = FileStorageManager.shared.save(image: result, location: location, context: context, cameraOnly: cameraOnly) != nil
                 DispatchQueue.main.async {
                     isSavingQuickPhoto = false
                     cameraVM.isCapturing = false
@@ -135,7 +135,7 @@ struct VaultView: View {
         isSavingQuickPhoto = true
         cameraVM.isCapturing = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let saved = FileStorageManager.shared.save(image: image, location: location, context: context) != nil
+                let saved = FileStorageManager.shared.save(image: image, location: location, context: context, cameraOnly: cameraOnly) != nil
             DispatchQueue.main.async {
                 isSavingQuickPhoto = false
                 cameraVM.isCapturing = false
