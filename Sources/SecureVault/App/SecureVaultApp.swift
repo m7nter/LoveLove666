@@ -30,6 +30,8 @@ struct SecureVaultApp: App {
         // The calculator UI fixture must also initialize the PIN-bound key;
         // production launches never execute this path.
         if ProcessInfo.processInfo.arguments.contains("--test-calculator") {
+            try? KeychainCodeStore.write("1357", for: "mainCode")
+            UserDefaults.standard.set(2, forKey: "vaultAccessFlowVersion")
             let testPaths = VaultDirectories.application
             try? FileManager.default.removeItem(at: testPaths.disabledMarker)
             try? FileManager.default.removeItem(at: testPaths.pendingMarker)
