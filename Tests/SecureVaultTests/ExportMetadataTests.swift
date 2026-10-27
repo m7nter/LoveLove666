@@ -62,6 +62,43 @@ final class ExportMetadataTests: XCTestCase {
         XCTAssertEqual(caption, "Событие 2. Координаты:\n55.777778, 67.777778")
         XCTAssertFalse(caption.contains("56.777778"))
     }
+
+    func testCoordinatesUseFirstFrameEvenWhenAttachmentsAreReversedAndEventsInterleave() throws {
+        let eventA = UUID(), eventB = UUID()
+        var firstA = record(0).meta!, secondA = record(1).meta!, firstB = record(2).meta!
+        firstA.eventID = eventA; firstA.eventIndex = 1
+        // The second frame appears earlier by wall clock, e.g. after the user
+        // changes time while the optional inactivity protection is disabled.
+        firstA = PhotoMeta(latitude: firstA.latitude, longitude: firstA.longitude,
+                           date: Date(timeIntervalSince1970: 30), hasLocation: true,
+                           eventID: eventA, eventIndex: 1)
+        secondA.eventID = eventA; secondA.eventIndex = 2
+        firstB.eventID = eventB; firstB.eventIndex = 1
+        let records: [ExportPhotoRecord] = [
+            .init(filename: "second-a.jpg", meta: secondA, folder: ""),
+            .init(filename: "first-b.jpg", meta: firstB, folder: ""),
+            .init(filename: "first-a.jpg", meta: firstA, folder: "")
+        ]
+        let text = ExportMetadata.coordinateMessage(records, exportedAt: Date(timeIntervalSince1970: 0),
+                                                    timeZone: TimeZone(secondsFromGMT: 0)!)
+        XCTAssertEqual(text, "Выгрузка 01.01.1970. Координаты:\n1) 55.777778, 67.777778\n2) 57.777778, 67.777778")
+        let archive = try XCTUnwrap(ExportMetadata.archiveText(records, options: .coordinates))
+        XCTAssertEqual(archive, "1) 55.777778, 67.777778\n2) 57.777778, 67.777778\n")
+        XCTAssertFalse(text.contains("56.777778"))
+    }
+
+    func testMissingGPSOnFirstFrameDoesNotUseSecondFramesCoordinate() {
+        let eventID = UUID()
+        var first = record(0, located: false).meta!, second = record(1).meta!
+        first.eventID = eventID; first.eventIndex = 1
+        second.eventID = eventID; second.eventIndex = 2
+        let records: [ExportPhotoRecord] = [
+            .init(filename: "second.jpg", meta: second, folder: ""),
+            .init(filename: "first.jpg", meta: first, folder: "")
+        ]
+        XCTAssertEqual(ExportMetadata.eventCoordinateCaption(records, title: "Событие 1"),
+                       "Событие 1. Координаты:\nнет данных")
+    }
     func testLegacyUnknownAndInvalidCoordinatesDoNotInventGPS() {
         XCTAssertNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date())))
         XCTAssertNotNil(ExportMetadata.coordinates(.init(latitude: 0, longitude: 0, date: Date(), hasLocation: true)))

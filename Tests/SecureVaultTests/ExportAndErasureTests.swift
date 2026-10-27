@@ -65,6 +65,20 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: "vaultGeneration"), 11)
         XCTAssertEqual(keyDeletions, 1)
     }
+    func testResetPreservesInstallationIdentityForTheNewVault() throws {
+        try write("1", to: paths.installMarker)
+        let erase = VaultEraseService(directories: paths, defaults: defaults, defaultsDomain: suite,
+            destroyKey: { self.keyDeletions += 1 },
+            preservedSupportEntries: [paths.installMarker.lastPathComponent])
+        try erase.prepare(.reset, generation: 12)
+        try erase.erase(.reset, generation: 12)
+        // Losing this marker makes an empty reset container look like a
+        // reinstall on the next launch and deletes the newly chosen PIN/key.
+        XCTAssertEqual(try String(contentsOf: paths.installMarker, encoding: .utf8), "1")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: paths.documents.path), [])
+        XCTAssertNil(defaults.string(forKey: "mainCode"))
+        XCTAssertEqual(keyDeletions, 1)
+    }
     func testDisableDeletesMaterialAndReturnsToFreshSetup() throws {
         let erase = service()
         try erase.prepare(.disable, generation: 12)

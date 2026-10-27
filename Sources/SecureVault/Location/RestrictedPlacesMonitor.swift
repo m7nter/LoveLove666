@@ -19,6 +19,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     private var activationDate = Date.distantPast
     private var nextRequest = Date.distantPast
     private var failureCount = 0
+    private var previousKinds: Set<RestrictedPlaceKind>?
     private var unavailableReason = "Проверяем ближайшие территории…"
     private let session: URLSession
 
@@ -84,6 +85,14 @@ final class RestrictedPlacesMonitor: ObservableObject {
     private func tick() {
         guard active else { return }
         let settings = SettingsStore.shared.restrictedPlaces
+        let enabledKinds = Set(RestrictedPlaceKind.allCases.filter(settings.includes))
+        if let previousKinds, previousKinds != enabledKinds {
+            // Invalidate a request made with the old switches immediately;
+            // otherwise its answer could suppress newly enabled categories.
+            cancelRequest()
+            nextRequest = .distantPast
+        }
+        previousKinds = enabledKinds
         guard settings.enabled else {
             cancelRequest(); snapshot = nil; nextRequest = .distantPast
             publish(.disabled); return
@@ -97,10 +106,19 @@ final class RestrictedPlacesMonitor: ObservableObject {
         // request is refreshed in the background. This keeps a stale offline
         // database from permanently masking newer OSM data.
         let onlineSnapshotIsUsable = location.flatMap { snapshot?.covers($0, settings: settings, now: Date()) } == true
+        // Automatic mode is online-first. Do not present an old regional
+        // snapshot while the first current request is still in flight: a
+        // stale offline geometry can report a misleading distance (for
+        // example, 150 m for an object that moved or was remapped). Offline
+        // data becomes a fallback only after an actual online failure.
         let usingOfflineFallback = settings.checkMode == .offline
-            || (settings.checkMode == .automatic && !onlineSnapshotIsUsable && offlineSnapshot != nil)
+            || (settings.checkMode == .automatic && failureCount > 0 && !onlineSnapshotIsUsable && offlineSnapshot != nil)
         let effectiveSnapshot = usingOfflineFallback ? offlineSnapshot : (settings.checkMode == .offline ? nil : snapshot)
         if settings.checkMode == .offline, offlineSnapshot == nil {
+            if let location, OfflinePlacesStore.shared.requiresSafetyUpdate(at: location) {
+                publish(.init(blocked: true, message: "Обновите базу зон: исправлена проверка полноты данных. Откройте офлайн-карты и нажмите «Продолжить / обновить зоны». Скачанная карта сохранена."))
+                return
+            }
             publish(.init(blocked: true, message: "Офлайн-база запретных зон не загружена или не покрывает эту точку. Съёмка заблокирована."))
             return
         }
@@ -151,8 +169,17 @@ final class RestrictedPlacesMonitor: ObservableObject {
             filters.append("[\(key)~\"^(\(escaped))$\"]")
         }
         if includes(.playground) {
-            filters += ["[leisure=playground]", "[playground]",
-                        "[name~\"детск.*площадк|игров.*площадк\",i]"]
+            filters += ["[leisure=playground]", "[playground]"]
+        }
+        // Overpass uses POSIX regex and does not support UTF-8 multibyte
+        // literals in regular expressions. A Cyrillic name regex therefore
+        // returns HTTP 400 on otherwise healthy mirrors. Request the small
+        // set of identifying keys by existence instead; the authoritative
+        // RestrictedPlaceKind.classify() applies the Russian aliases after
+        // decoding the returned tags.
+        let nameAliasKinds: [RestrictedPlaceKind] = [.playground, .police, .security, .administration, .prosecutor, .recruitment]
+        if nameAliasKinds.contains(where: includes) {
+            filters.append(contentsOf: RestrictedPlaceKind.identifyingNameKeys.map { "[\(quoteTagKey($0))]" })
         }
         var amenities: [String] = []
         if includes(.kindergarten) { amenities.append("kindergarten") }
@@ -191,16 +218,11 @@ final class RestrictedPlacesMonitor: ObservableObject {
         return "[out:json][timeout:10][maxsize:8388608];(\(selections));out tags geom;"
     }
 
-    private static let overpassEndpoints = [
-        URL(string: "https://overpass.private.coffee/api/interpreter")!,
-        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
-        URL(string: "https://overpass.kumi.systems/api/interpreter")!,
-        URL(string: "https://overpass-api.de/api/interpreter")!,
-        URL(string: "https://lz4.overpass-api.de/api/interpreter")!,
-        URL(string: "https://z.overpass-api.de/api/interpreter")!,
-        URL(string: "https://overpass.osm.ch/api/interpreter")!,
-        URL(string: "https://overpass.nchc.org.tw/api/interpreter")!,
-    ]
+    private static func quoteTagKey(_ key: String) -> String {
+        "\"" + key.replacingOccurrences(of: "\\\"", with: "\\\\\"") + "\""
+    }
+
+    private static let overpassEndpoints = OverpassConfiguration.worldwideEndpoints
 
     private struct OverpassResponse {
         let places: [RestrictedPlace]
@@ -230,8 +252,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
         request.setValue("Calculator/1.2.0 (com.securevault.app)", forHTTPHeaderField: "User-Agent")
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        request.httpBody = "data=\(encoded)".data(using: .utf8)
+        request.httpBody = OverpassConfiguration.formBody(query: query)
         request.timeoutInterval = 10
 
         do {
@@ -247,6 +268,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
             // even though ordinary HTTPS requests work normally.
         }
 
+        try Task.checkCancellation()
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }
@@ -311,6 +333,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         do {
             return try await firstValid(from: endpoints.prefix(4))
         } catch {
+            try Task.checkCancellation()
             return try await firstValid(from: endpoints.dropFirst(4))
         }
     }
@@ -336,7 +359,8 @@ final class RestrictedPlacesMonitor: ObservableObject {
                     self.requestTask = nil; self.requestID = nil
                     self.rememberSuccessfulEndpoint(response.endpoint)
                     self.snapshot = .init(center: center, radius: radius, fetchedAt: Date(), places: response.places,
-                                          isEmptyOnlineResponse: response.places.isEmpty)
+                                          isEmptyOnlineResponse: response.places.isEmpty,
+                                          queriedKinds: Set(RestrictedPlaceKind.allCases.filter(settings.includes)))
                     let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
                     let server = response.endpoint.host ?? "Overpass"
                     self.lastCheckSummary = "Успешно: найдено объектов — \(response.places.count). \(server), \(elapsed) с."

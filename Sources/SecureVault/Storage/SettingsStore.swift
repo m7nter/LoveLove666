@@ -70,8 +70,15 @@ class SettingsStore: ObservableObject {
     }
 
     @Published var avatarImage: UIImage? {
-        didSet { saveAvatar() }
+        didSet {
+            if !saveAvatar() {
+                isLoadingAvatar = true
+                avatarImage = oldValue
+                isLoadingAvatar = false
+            }
+        }
     }
+    @Published var avatarError: String?
 
     @Published var showCrosshair: Bool {
         didSet { UserDefaults.standard.set(showCrosshair, forKey: "showCrosshair") }
@@ -136,8 +143,11 @@ class SettingsStore: ObservableObject {
 
 
     private let avatarKey = "userAvatar"
+    private let protectedPreferences: ProtectedPreferenceStore
+    private var isLoadingAvatar = false
 
-    init() {
+    init(protectedPreferences: ProtectedPreferenceStore = .init()) {
+        self.protectedPreferences = protectedPreferences
         showCrosshair = UserDefaults.standard.bool(forKey: "showCrosshair")
         crosshairColor = UserDefaults.standard.string(forKey: "crosshairColor") ?? "white"
         crosshairOnPhoto = UserDefaults.standard.bool(forKey: "crosshairOnPhoto")
@@ -181,8 +191,11 @@ class SettingsStore: ObservableObject {
 
     private func saveCode(_ code: String, for account: String) {
         do {
-            if account == "mainCode", !code.isEmpty { try CryptoManager.rebindPIN(code) }
-            try KeychainCodeStore.write(code, for: account)
+            if account == "mainCode", !code.isEmpty {
+                try MainPINChangeTransaction.application.change(to: code)
+            } else {
+                try KeychainCodeStore.write(code, for: account)
+            }
             securityError = nil
         } catch {
             securityError = "Код не сохранён в защищённом хранилище: \(error.localizedDescription)"
@@ -199,17 +212,41 @@ class SettingsStore: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "kamikazeCodeEnabled") }
     }
 
-    private func saveAvatar() {
-        guard avatarImage != nil else { ProtectedPreferences.remove(forKey: avatarKey); return }
+    private func saveAvatar() -> Bool {
+        guard !isLoadingAvatar else { return true }
+        guard avatarImage != nil else {
+            protectedPreferences.remove(forKey: avatarKey)
+            avatarError = nil
+            return true
+        }
         guard let img = avatarImage,
-              let data = img.jpegData(compressionQuality: 0.8) else { return }
-        ProtectedPreferences.set(data, forKey: avatarKey)
+              let data = img.jpegData(compressionQuality: 0.8) else {
+            avatarError = "Не удалось подготовить фото для снимков. Выберите другое изображение."
+            return false
+        }
+        if !protectedPreferences.set(data, forKey: avatarKey) {
+            avatarError = "Фото для снимков не сохранено. Разблокируйте iPhone и повторите выбор."
+            return false
+        }
+        avatarError = nil
+        return true
     }
 
     private func loadAvatar() {
-        guard let data = ProtectedPreferences.data(forKey: avatarKey),
+        guard let data = protectedPreferences.data(forKey: avatarKey),
               let img = UIImage(data: data) else { return }
+        isLoadingAvatar = true
+        defer { isLoadingAvatar = false }
         avatarImage = img
+    }
+
+    /// The singleton is created before the first PIN entry. A legacy avatar
+    /// encrypted by the vault key can only be read/migrated after that unlock.
+    func reloadProtectedPreferences() {
+        loadAvatar()
+        _ = protectedPreferences.stringArray(forKey: "labelTemplates")
+        _ = protectedPreferences.string(forKey: "selectedTemplate")
+        _ = protectedPreferences.data(forKey: "pendingCaptureEvent")
     }
 
     func resetToFactory() {

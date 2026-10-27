@@ -40,7 +40,17 @@ struct SecureVaultApp: App {
             VaultGate.shared.allow()
             try? CryptoManager.destroyKey()
             _ = CryptoManager.encrypt(Data("ui-test-key".utf8))
+            if ProcessInfo.processInfo.arguments.contains("--test-legacy-avatar") {
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1
+                let avatar = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 30), format: format).image { _ in
+                    UIColor.orange.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 40, height: 30))
+                }
+                if let jpeg = avatar.jpegData(compressionQuality: 0.8), let encrypted = CryptoManager.encrypt(jpeg) {
+                    UserDefaults.standard.set(encrypted, forKey: "protected.userAvatar")
+                }
+            }
             try? CryptoManager.bindPIN("1357")
+            if ProcessInfo.processInfo.arguments.contains("--test-legacy-avatar") { CryptoManager.lockVault() }
         }
         #endif
         PhotoExporter.cleanupTemporaryExports()
@@ -72,7 +82,7 @@ struct SecureVaultApp: App {
     private func prepareInstallIdentity() {
         let paths = VaultDirectories.application
         let fileManager = FileManager.default
-        let marker = paths.support.appendingPathComponent(".install-marker")
+        let marker = paths.installMarker
         guard !fileManager.fileExists(atPath: marker.path),
               !fileManager.fileExists(atPath: paths.pendingMarker.path),
               !fileManager.fileExists(atPath: paths.disabledMarker.path) else { return }
@@ -121,6 +131,17 @@ struct SecureVaultApp: App {
             }
             .onAppear {
                 if lifecycle.blocksUI { showsRecovery = true }
+            }
+            .onChange(of: isUnlocked) { unlocked in
+                if !unlocked { CryptoManager.lockVault() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
+                // A device lock always ends the authenticated session, even
+                // when the optional app-background grace period is enabled.
+                stopTimer()
+                isUnlocked = false
+                isCameraOnly = false
+                CryptoManager.lockVault()
             }
             .onReceive(NotificationCenter.default.publisher(for: .blackScreenChanged)) { notification in
                 if notification.object as? Bool == true { stopTimer() }
@@ -283,6 +304,17 @@ struct RootView: View {
             return
         }
         do {
+            defer { if !isUnlocked { CryptoManager.lockVault() } }
+            try MainPINChangeTransaction.application.recoverIfNeeded()
+        } catch {
+            // An interrupted PIN change is not a fresh install. Keep both
+            // encrypted material and its recovery journal until retry succeeds.
+            accessError = "Не удалось завершить смену кода: \(error.localizedDescription). Повторите попытку."
+            needsSetup = false; accessChecked = true
+            if !initial { showAccess = true }
+            return
+        }
+        do {
             let code = try KeychainCodeStore.readChecked("mainCode")
             needsSetup = code.isEmpty || code == "2026"
             accessError = nil
@@ -341,11 +373,25 @@ struct RootView: View {
         guard !VaultLifecycle.shared.isBruteForceLocked else { return }
         guard !VaultLifecycle.shared.blocksUI,
               (try? VaultGate.shared.withAccess { true }) == true else { return }
-        guard InactivityTimerManager.shared.recordActivity() else {
+        // Separate an expired/tampered marker from a temporary write failure.
+        // A confirmed expiry (and the existing fail-closed corrupt-marker
+        // policy) is destructive; a later marker-write failure is retryable.
+        let inactivity = InactivityTimerManager.shared
+        if let limit = inactivity.activeLimitHours,
+           inactivity.shouldWipeData(limitHours: limit) {
             VaultLifecycle.shared.erase(.reset)
             return
         }
+        guard inactivity.recordActivity() else {
+            CryptoManager.lockVault()
+            isUnlocked = false
+            accessError = inactivity.lastError ?? "Не удалось обновить контроль времени. Повторите попытку."
+            showAccess = true
+            return
+        }
         let wasSetup = needsSetup
+        SettingsStore.shared.reloadProtectedPreferences()
+        FileStorageManager.shared.refreshEventDistanceAnchor()
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--test-gallery") {
             // Encryption is available after launch, never during App.init.

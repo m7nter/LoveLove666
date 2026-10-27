@@ -28,6 +28,7 @@ enum OSMPBFPlaceParser {
             for shift in stride(from: 0, to: 64, by: 7) {
                 guard index < data.count else { throw ParseError.invalidBlob }
                 let byte = data[index]; index += 1
+                guard shift < 63 || byte <= 1 else { throw ParseError.invalidBlob }
                 value |= UInt64(byte & 0x7f) << UInt64(shift)
                 if byte & 0x80 == 0 { return value }
             }
@@ -68,6 +69,18 @@ enum OSMPBFPlaceParser {
         Int64(bitPattern: (value >> 1) ^ (~(value & 1) &+ 1))
     }
 
+    private static func adding(_ lhs: Int64, _ rhs: Int64) throws -> Int64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        guard !overflow else { throw ParseError.invalidBlob }
+        return value
+    }
+
+    private static func coordinateValue(offset: Int64, granularity: Int64, value: Int64) throws -> Double {
+        let (scaled, overflow) = granularity.multipliedReportingOverflow(by: value)
+        guard granularity > 0, !overflow else { throw ParseError.invalidBlob }
+        return 1e-9 * Double(try adding(offset, scaled))
+    }
+
     private static func packedVarints(_ data: Data) throws -> [UInt64] {
         var reader = Reader(data: data); var values: [UInt64] = []
         while !reader.isAtEnd { values.append(try reader.varint()) }
@@ -83,11 +96,12 @@ enum OSMPBFPlaceParser {
         return result
     }
 
-    private static func tags(keys: [UInt64], values: [UInt64], table: [String]) -> [String: String] {
+    private static func tags(keys: [UInt64], values: [UInt64], table: [String]) throws -> [String: String] {
+        guard keys.count == values.count else { throw ParseError.invalidBlob }
         var result: [String: String] = [:]
-        for index in 0..<min(keys.count, values.count) {
-            let key = Int(keys[index]), value = Int(values[index])
-            if key >= 0, key < table.count, value >= 0, value < table.count { result[table[key]] = table[value] }
+        for index in keys.indices {
+            guard keys[index] < UInt64(table.count), values[index] < UInt64(table.count) else { throw ParseError.invalidBlob }
+            result[table[Int(keys[index])]] = table[Int(values[index])]
         }
         return result
     }
@@ -105,9 +119,10 @@ enum OSMPBFPlaceParser {
             default: try reader.skip(wire: field.wire)
             }
         }
-        let coordinate = OSMCoordinate(lat: 1e-9 * Double(latOffset + granularity * lat), lon: 1e-9 * Double(lonOffset + granularity * lon))
+        let coordinate = try OSMCoordinate(lat: coordinateValue(offset: latOffset, granularity: granularity, value: lat),
+                                           lon: coordinateValue(offset: lonOffset, granularity: granularity, value: lon))
         guard coordinate.valid else { throw ParseError.invalidGeometry }
-        return (id, coordinate, tags(keys: keys, values: values, table: table))
+        return (id, coordinate, try tags(keys: keys, values: values, table: table))
     }
 
     private static func denseNodes(_ data: Data, table: [String], granularity: Int64, latOffset: Int64, lonOffset: Int64) throws -> [(Int64, OSMCoordinate, [String: String])] {
@@ -126,17 +141,23 @@ enum OSMPBFPlaceParser {
         var id: Int64 = 0, lat: Int64 = 0, lon: Int64 = 0, tagIndex = 0
         guard ids.count == lats.count, ids.count == lons.count else { throw ParseError.invalidBlob }
         for index in ids.indices {
-            id += signed(ids[index]); lat += signed(lats[index]); lon += signed(lons[index])
+            id = try adding(id, signed(ids[index])); lat = try adding(lat, signed(lats[index])); lon = try adding(lon, signed(lons[index]))
             var keyList: [UInt64] = [], valueList: [UInt64] = []
             while tagIndex < keyValues.count, keyValues[tagIndex] != 0 {
                 keyList.append(keyValues[tagIndex]); tagIndex += 1
                 guard tagIndex < keyValues.count else { break }
                 valueList.append(keyValues[tagIndex]); tagIndex += 1
             }
-            if tagIndex < keyValues.count { tagIndex += 1 }
-            let coordinate = OSMCoordinate(lat: 1e-9 * Double(latOffset + granularity * lat), lon: 1e-9 * Double(lonOffset + granularity * lon))
-            if coordinate.valid { result.append((id, coordinate, tags(keys: keyList, values: valueList, table: table))) }
+            if !keyValues.isEmpty {
+                guard tagIndex < keyValues.count, keyValues[tagIndex] == 0 else { throw ParseError.invalidBlob }
+                tagIndex += 1
+            }
+            let coordinate = try OSMCoordinate(lat: coordinateValue(offset: latOffset, granularity: granularity, value: lat),
+                                               lon: coordinateValue(offset: lonOffset, granularity: granularity, value: lon))
+            guard coordinate.valid else { throw ParseError.invalidGeometry }
+            result.append((id, coordinate, try tags(keys: keyList, values: valueList, table: table)))
         }
+        guard tagIndex == keyValues.count else { throw ParseError.invalidBlob }
         return result
     }
 
@@ -152,8 +173,8 @@ enum OSMPBFPlaceParser {
             }
         }
         var previous: Int64 = 0
-        let decoded = refs.map { value -> Int64 in previous += signed(value); return previous }
-        return Way(id: id, tags: tags(keys: keys, values: values, table: table), refs: decoded)
+        let decoded = try refs.map { value -> Int64 in previous = try adding(previous, signed(value)); return previous }
+        return Way(id: id, tags: try tags(keys: keys, values: values, table: table), refs: decoded)
     }
 
     private static func relation(_ data: Data, table: [String]) throws -> Relation {
@@ -170,14 +191,16 @@ enum OSMPBFPlaceParser {
             }
         }
         var previous: Int64 = 0; var members: [Member] = []
+        guard refs.count == roles.count, refs.count == types.count else { throw ParseError.invalidBlob }
         for index in 0..<min(refs.count, min(roles.count, types.count)) {
-            previous += signed(refs[index])
+            previous = try adding(previous, signed(refs[index]))
             // roles_sid contains absolute string-table indexes (not deltas).
             let roleID = Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: roles[index])))
             let role = roleID >= 0 && roleID < Int64(table.count) ? table[Int(roleID)] : ""
+            guard types[index] <= 2 else { throw ParseError.invalidBlob }
             members.append(Member(type: Int(types[index]), role: role, ref: previous))
         }
-        return Relation(id: id, tags: tags(keys: keys, values: values, table: table), members: members)
+        return Relation(id: id, tags: try tags(keys: keys, values: values, table: table), members: members)
     }
 
     private static func primitiveBlock(_ data: Data,
@@ -288,12 +311,20 @@ enum OSMPBFPlaceParser {
             var header = Reader(data: data.subdata(in: offset..<(offset + headerLength))); offset += headerLength
             var type = "", dataSize = 0
             while let field = try header.field() {
-                switch field.number { case 1: type = String(data: try header.bytes(), encoding: .utf8) ?? ""; case 3: dataSize = Int(try header.varint()); default: try header.skip(wire: field.wire) }
+                switch field.number {
+                case 1: type = String(data: try header.bytes(), encoding: .utf8) ?? ""
+                case 3:
+                    let value = try header.varint()
+                    guard value <= UInt64(maximumBlobSize) else { throw ParseError.invalidBlob }
+                    dataSize = Int(value)
+                default: try header.skip(wire: field.wire)
+                }
             }
             guard dataSize > 0, dataSize <= maximumBlobSize, offset + dataSize <= data.count else { throw ParseError.invalidBlob }
             let blob = try uncompressedBlob(data.subdata(in: offset..<(offset + dataSize))); offset += dataSize
             if type == "OSMData" { try body(blob); block += 1; progress?(offset, data.count) }
         }
+        guard offset == data.count, block > 0 else { throw ParseError.invalidBlob }
     }
 
     static func parse(url: URL, progress: ((Int, Int) -> Void)? = nil) throws -> [RestrictedPlace] {
@@ -310,13 +341,21 @@ enum OSMPBFPlaceParser {
             progress?(done, total * 2)
         })
 
-        let restrictedRelations = relations.filter { RestrictedPlaceKind.classify($0.tags) != nil }
+        var relationByID: [Int64: Relation] = [:]
+        for relation in relations {
+            guard relationByID.updateValue(relation, forKey: relation.id) == nil else { throw ParseError.invalidBlob }
+        }
+        let restrictedRelations = relations.filter { RestrictedPlaceKind.classify($0.tags) != nil }.map { relation in
+            Relation(id: relation.id, tags: relation.tags,
+                     members: flattenedMembers(relation, relations: relationByID, visited: []))
+        }
         var neededWayIDs = Set(ways.compactMap { RestrictedPlaceKind.classify($0.tags) == nil ? nil : $0.id })
         for relation in restrictedRelations {
             neededWayIDs.formUnion(relation.members.filter { $0.type == 1 }.map(\.ref))
         }
         let retainedWays = ways.filter { neededWayIDs.contains($0.id) }
-        let neededNodeIDs = Set(retainedWays.flatMap(\.refs))
+        var neededNodeIDs = Set(retainedWays.flatMap(\.refs))
+        neededNodeIDs.formUnion(restrictedRelations.flatMap { $0.members.filter { $0.type == 0 }.map(\.ref) })
 
         // The second pass decodes coordinates only for nodes referenced by a
         // restricted way or relation. A mapped file remains cheap to reread,
@@ -335,32 +374,91 @@ enum OSMPBFPlaceParser {
             return RestrictedPlace(id: "node/\(item.0)", kind: kind, name: item.2["name:ru"] ?? item.2["name"], point: item.1, lines: [], outerRings: [], innerRings: [])
         }
         for way in retainedWays { if let place = makePlace(way, nodes: nodes) { places.append(place) } }
-        let wayByID = Dictionary(uniqueKeysWithValues: retainedWays.map { ($0.id, $0) })
+        var wayByID: [Int64: Way] = [:]
+        for way in retainedWays {
+            guard wayByID.updateValue(way, forKey: way.id) == nil else { throw ParseError.invalidBlob }
+        }
         for relation in restrictedRelations { if let place = makePlace(relation, ways: wayByID, nodes: nodes) { places.append(place) } }
         return places
     }
 
     private static func makePlace(_ way: Way, nodes: [Int64: OSMCoordinate]) -> RestrictedPlace? {
         guard let kind = RestrictedPlaceKind.classify(way.tags) else { return nil }
-        let geometry = way.refs.compactMap { nodes[$0] }; guard geometry.count >= 2 else { return nil }
-        if geometry.first == geometry.last, way.tags["area"] != "no" { return RestrictedPlace(id: "way/\(way.id)", kind: kind, name: way.tags["name:ru"] ?? way.tags["name"], point: nil, lines: [], outerRings: [geometry], innerRings: []) }
-        return RestrictedPlace(id: "way/\(way.id)", kind: kind, name: way.tags["name:ru"] ?? way.tags["name"], point: nil, lines: [geometry], outerRings: [], innerRings: [])
+        let runs = coordinateRuns(way.refs, nodes: nodes)
+        guard !runs.isEmpty else { return nil }
+        if let geometry = runs.first, runs.count == 1, geometry.count == way.refs.count,
+           geometry.count >= 4, way.refs.first == way.refs.last, way.tags["area"] != "no" {
+            return RestrictedPlace(id: "way/\(way.id)", kind: kind, name: way.tags["name:ru"] ?? way.tags["name"], point: nil, lines: [], outerRings: [geometry], innerRings: [])
+        }
+        return RestrictedPlace(id: "way/\(way.id)", kind: kind, name: way.tags["name:ru"] ?? way.tags["name"], point: nil, lines: runs, outerRings: [], innerRings: [])
+    }
+
+    /// Never connect the two sides of an absent node with an invented edge.
+    private static func coordinateRuns(_ refs: [Int64], nodes: [Int64: OSMCoordinate]) -> [[OSMCoordinate]] {
+        var result: [[OSMCoordinate]] = [], current: [OSMCoordinate] = []
+        for ref in refs {
+            if let coordinate = nodes[ref] { current.append(coordinate) }
+            else if !current.isEmpty { result.append(current); current = [] }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    private static func flattenedMembers(_ relation: Relation, relations: [Int64: Relation], visited: Set<Int64>) -> [Member] {
+        guard !visited.contains(relation.id), visited.count < 64 else { return [] }
+        var visited = visited; visited.insert(relation.id)
+        return relation.members.flatMap { member -> [Member] in
+            guard member.type == 2 else { return [member] }
+            guard let child = relations[member.ref] else { return [] }
+            return flattenedMembers(child, relations: relations, visited: visited).map { nested in
+                let role: String
+                if member.role == "inner" { role = nested.role == "inner" ? "outer" : "inner" }
+                else { role = nested.role }
+                return Member(type: nested.type, role: role, ref: nested.ref)
+            }
+        }
     }
 
     private static func makePlace(_ relation: Relation, ways: [Int64: Way], nodes: [Int64: OSMCoordinate]) -> RestrictedPlace? {
         guard let kind = RestrictedPlaceKind.classify(relation.tags) else { return nil }
         var outerRefs: [[Int64]] = [], innerRefs: [[Int64]] = [], lines: [[OSMCoordinate]] = []
+        if relation.tags["type"] == "site" {
+            var footprints: [[OSMCoordinate]] = []
+            for member in relation.members {
+                if member.type == 0, let coordinate = nodes[member.ref] { lines.append([coordinate]) }
+                else if member.type == 1, let way = ways[member.ref] {
+                    let runs = coordinateRuns(way.refs, nodes: nodes)
+                    if let geometry = runs.first, runs.count == 1, geometry.count == way.refs.count,
+                       geometry.count >= 4, way.refs.first == way.refs.last, way.tags["area"] != "no" {
+                        footprints.append(geometry)
+                    } else { lines.append(contentsOf: runs) }
+                }
+            }
+            guard !lines.isEmpty || !footprints.isEmpty else { return nil }
+            return RestrictedPlace(id: "relation/\(relation.id)", kind: kind, name: relation.tags["name:ru"] ?? relation.tags["name"], point: nil, lines: lines, outerRings: footprints, innerRings: [])
+        }
         for member in relation.members where member.type == 1 {
             guard let way = ways[member.ref] else { continue }
             guard way.refs.count >= 2 else { continue }
             // Multipolygon boundaries are often split into open way fragments.
             // Join both closed and open fragments before converting to geometry.
             if member.role == "inner" { innerRefs.append(way.refs) }
-            else if member.role == "outer" || way.refs.first == way.refs.last { outerRefs.append(way.refs) }
-            else { lines.append(way.refs.compactMap { nodes[$0] }) }
+            else if member.role == "outer" || member.role.isEmpty || way.refs.first == way.refs.last { outerRefs.append(way.refs) }
+            else { lines.append(contentsOf: coordinateRuns(way.refs, nodes: nodes)) }
         }
-        let outer = joinRings(outerRefs).map { $0.compactMap { nodes[$0] } }.filter { $0.count >= 4 }
-        let inner = joinRings(innerRefs).map { $0.compactMap { nodes[$0] } }.filter { $0.count >= 4 }
+        func geometries(_ fragments: [[Int64]]) -> [[OSMCoordinate]] {
+            joinRings(fragments).compactMap { refs in
+                let runs = coordinateRuns(refs, nodes: nodes)
+                guard let geometry = runs.first, runs.count == 1, geometry.count == refs.count,
+                      refs.count >= 4, refs.first == refs.last else {
+                    lines.append(contentsOf: runs)
+                    return nil
+                }
+                return geometry
+            }
+        }
+        let outer = geometries(outerRefs)
+        let inner = geometries(innerRefs)
         guard !outer.isEmpty || !inner.isEmpty || !lines.isEmpty else { return nil }
         return RestrictedPlace(id: "relation/\(relation.id)", kind: kind, name: relation.tags["name:ru"] ?? relation.tags["name"], point: nil, lines: lines, outerRings: outer, innerRings: inner)
     }

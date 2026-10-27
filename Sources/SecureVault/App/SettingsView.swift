@@ -85,6 +85,8 @@ struct SettingsView: View {
                                 .scaledToFill()
                                 .frame(width: 64, height: 64)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .accessibilityIdentifier("settings.footerAvatar")
+                                .accessibilityLabel("Фото на снимках")
                         } else {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.gray.opacity(0.3))
@@ -104,6 +106,9 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    if let error = store.avatarError {
+                        Text(error).font(.caption).foregroundColor(.red)
+                    }
                 }
 
                 Section("Прицел") {

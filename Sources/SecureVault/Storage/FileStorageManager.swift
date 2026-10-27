@@ -28,12 +28,68 @@ struct PhotoMeta: Codable {
     var totalNumber: Int? = nil
 }
 
+enum PhotoStorageError: LocalizedError, Equatable {
+    case invalidFolder, invalidImage, encryptionUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidFolder: return "Папка события недоступна. Выберите существующую папку в настройках."
+        case .invalidImage: return "Не удалось подготовить изображение к сохранению."
+        case .encryptionUnavailable: return "Ключ шифрования закрыт. Снова введите основной код и повторите сохранение."
+        }
+    }
+
+    static func message(for error: Error) -> String {
+        if let storageError = error as? PhotoStorageError { return storageError.localizedDescription }
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain {
+            switch error.code {
+            case NSFileWriteOutOfSpaceError:
+                return "На iPhone недостаточно свободного места. Освободите память и повторите сохранение."
+            case NSFileReadNoPermissionError, NSFileWriteNoPermissionError:
+                return "Доступ к защищённым данным закрыт. Разблокируйте iPhone и снова введите основной код."
+            default: break
+            }
+        }
+        return "Не удалось записать файл: \(error.localizedDescription)"
+    }
+}
+
+private struct PhotoEventAnchor: Codable {
+    let eventID: UUID?
+    let eventNumber: Int?
+    let date: Date
+    let latitude: Double?
+    let longitude: Double?
+
+    init(_ meta: PhotoMeta) {
+        eventID = meta.eventID; eventNumber = meta.eventNumber; date = meta.date
+        let known = meta.hasLocation != false && (meta.hasLocation == true || meta.latitude != 0 || meta.longitude != 0)
+        let valid = CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: meta.latitude, longitude: meta.longitude))
+        latitude = known && valid ? meta.latitude : nil
+        longitude = known && valid ? meta.longitude : nil
+    }
+
+    var location: CLLocation? {
+        guard let latitude, let longitude,
+              CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: latitude, longitude: longitude)) else { return nil }
+        return CLLocation(coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                          altitude: 0, horizontalAccuracy: -1, verticalAccuracy: -1, timestamp: date)
+    }
+}
+
+private struct PendingPhotoSave: Codable {
+    let updatesAnchor: Bool
+    let previousAnchor: Data?
+}
+
 final class FileStorageManager {
     static let shared = FileStorageManager(migrationInBackground: true)
     private let lock = NSRecursiveLock()
     private let fm = FileManager.default
     private let directory: URL?
     private let defaults: UserDefaults
+    private let writeFile: (Data, URL) throws -> Void
     private let thumbnailCache = NSCache<NSString, UIImage>()
     private var eraseObserver: NSObjectProtocol?
     private var cachedLatestURL: URL?
@@ -41,13 +97,17 @@ final class FileStorageManager {
     private var cachedLatestResolved = false
     private var cachedLatestEventLocation: CLLocation?
     private var cachedLatestEventLocationResolved = false
+    private var cachedEventReferenceIssue: String?
+    private var eventAnchorURL: URL { vaultDirectory.appendingPathComponent(".last-event") }
     private var vaultDirectory: URL {
         directory ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("VaultPhotos")
     }
 
-    init(directory: URL? = nil, defaults: UserDefaults = .standard, migrationInBackground: Bool = false) {
+    init(directory: URL? = nil, defaults: UserDefaults = .standard, migrationInBackground: Bool = false,
+         writeFile: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1, options: [.atomic, .completeFileProtection]) }) {
         self.directory = directory
         self.defaults = defaults
+        self.writeFile = writeFile
         thumbnailCache.totalCostLimit = 32 * 1024 * 1024
         eraseObserver = NotificationCenter.default.addObserver(forName: .vaultWillErase, object: nil, queue: nil) { [weak self] _ in
             guard let self else { return }
@@ -57,12 +117,14 @@ final class FileStorageManager {
             self.cachedLatestResolved = false
             self.cachedLatestEventLocation = nil
             self.cachedLatestEventLocationResolved = false
+            self.cachedEventReferenceIssue = nil
             self.thumbnailCache.removeAllObjects()
         }
         try? VaultGate.shared.withAccess {
             try fm.createDirectory(at: vaultDirectory, withIntermediateDirectories: true)
             try? (vaultDirectory as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
             markExcludedFromBackup(vaultDirectory)
+            try recoverInterruptedSavesUnlocked()
         }
         if migrationInBackground {
             DispatchQueue.global(qos: .utility).async { [weak self] in self?.backfillNumbers() }
@@ -108,11 +170,15 @@ final class FileStorageManager {
         return (daily, total)
     }
 
-    private func saveUnlocked(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil, cameraOnly: Bool = false) -> URL? {
+    private func saveUnlocked(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil, cameraOnly: Bool = false) throws -> URL {
         lock.lock(); defer { lock.unlock() }
+        try recoverInterruptedSavesUnlocked()
         let event = context ?? newEvent()
-        guard Self.validFolder(event.folder), let jpeg = image.jpegData(compressionQuality: 0.92),
-              let encrypted = cameraOnly ? CryptoManager.encryptForCamera(jpeg) : CryptoManager.encrypt(jpeg) else { return nil }
+        guard Self.validFolder(event.folder) else { throw PhotoStorageError.invalidFolder }
+        guard let jpeg = image.jpegData(compressionQuality: 0.92) else { throw PhotoStorageError.invalidImage }
+        guard let encrypted = cameraOnly ? CryptoManager.encryptForCamera(jpeg) : CryptoManager.encrypt(jpeg) else {
+            throw PhotoStorageError.encryptionUnavailable
+        }
         let date = event.capturedAt ?? Date()
         let numbers = allocateNumbers(date: date)
         var meta = PhotoMeta(latitude: location?.coordinate.latitude ?? 0,
@@ -123,30 +189,84 @@ final class FileStorageManager {
         meta.eventNumber = event.eventNumber
         meta.dailyNumber = numbers.0; meta.totalNumber = numbers.1
         let dir = event.folder == "Без режима" ? vaultDirectory : vaultDirectory.appendingPathComponent(event.folder)
-        let filename = SettingsStore.shared.numberingMode == "off"
+        var filename = SettingsStore.shared.numberingMode == "off"
             ? UUID().uuidString + ".jpg" : numberedName(meta: meta, fallback: UUID().uuidString)
-        let url = dir.appendingPathComponent(filename)
+        var url = dir.appendingPathComponent(filename)
+        // Preferences can lag behind files after a force quit. Reusing a
+        // numbered name must never replace an already committed photograph.
+        while fm.fileExists(atPath: url.path) || fm.fileExists(atPath: metaURL(for: url).path) {
+            filename = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent + "_" + UUID().uuidString + ".jpg"
+            url = dir.appendingPathComponent(filename)
+        }
+        let pendingURL = url.appendingPathExtension("pending")
+        let updatesAnchor = event.index == 1
+        let previousAnchor = fm.fileExists(atPath: eventAnchorURL.path) ? try Data(contentsOf: eventAnchorURL) : nil
+        let anchor: Data?
+        if updatesAnchor {
+            guard let encrypted = CryptoManager.encryptForCamera(try JSONEncoder().encode(PhotoEventAnchor(meta))) else {
+                throw PhotoStorageError.encryptionUnavailable
+            }
+            anchor = encrypted
+        } else { anchor = nil }
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             try (dir as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
             markExcludedFromBackup(dir)
-            try encrypted.write(to: url, options: [.atomic, .completeFileProtection])
+            let pending = PendingPhotoSave(updatesAnchor: updatesAnchor, previousAnchor: previousAnchor)
+            try writeFile(JSONEncoder().encode(pending), pendingURL)
+            try writeFile(encrypted, url)
             markExcludedFromBackup(url)
-            do { try saveMeta(meta, for: url, cameraOnly: cameraOnly) }
-            catch { try? fm.removeItem(at: url); throw error }
+            try saveMeta(meta, for: url, cameraOnly: cameraOnly)
+            if let anchor {
+                try writeFile(anchor, eventAnchorURL)
+                markExcludedFromBackup(eventAnchorURL)
+            }
+            // Removing this marker commits the pair. A killed process leaves
+            // it hidden and the next launch rolls it back with its old anchor.
+            try fm.removeItem(at: pendingURL)
             cachedLatestURL = nil
             cachedLatestLocation = nil
             cachedLatestResolved = false
             cachedLatestEventLocation = nil
             cachedLatestEventLocationResolved = false
+            cachedEventReferenceIssue = nil
             return url
-        } catch { return nil }
+        } catch {
+            if fm.fileExists(atPath: pendingURL.path) { try? rollbackPendingSave(at: pendingURL) }
+            throw error
+        }
+    }
+
+    private func rollbackPendingSave(at pendingURL: URL) throws {
+        let imageURL = pendingURL.deletingPathExtension()
+        guard imageURL.pathExtension == "jpg" else { return }
+        let pending = try JSONDecoder().decode(PendingPhotoSave.self, from: Data(contentsOf: pendingURL))
+        for url in [imageURL, metaURL(for: imageURL)] where fm.fileExists(atPath: url.path) {
+            // A directory in place of a sidecar is not a partial file owned by
+            // this save and must never be recursively removed during recovery.
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else { throw CocoaError(.fileWriteNoPermission) }
+            try fm.removeItem(at: url)
+        }
+        if pending.updatesAnchor {
+            if let old = pending.previousAnchor { try writeFile(old, eventAnchorURL) }
+            else if fm.fileExists(atPath: eventAnchorURL.path) { try fm.removeItem(at: eventAnchorURL) }
+        }
+        try fm.removeItem(at: pendingURL)
+    }
+
+    private func recoverInterruptedSavesUnlocked() throws {
+        guard let enumerator = fm.enumerator(at: vaultDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else { return }
+        let pending = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "pending" && $0.deletingPathExtension().pathExtension == "jpg" }
+        for url in pending { try rollbackPendingSave(at: url) }
     }
 
     private func loadAllWithMetaUnlocked() -> [(URL, PhotoMeta?)] {
         lock.lock(); defer { lock.unlock() }
         guard let enumerator = fm.enumerator(at: vaultDirectory, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles) else { return [] }
-        let urls = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "jpg" }
+        let urls = enumerator.compactMap { $0 as? URL }.filter {
+            $0.pathExtension == "jpg" && !fm.fileExists(atPath: $0.appendingPathExtension("pending").path)
+        }
         let records = urls.map { url -> (url: URL, meta: PhotoMeta?, date: Date) in
             let meta = loadMetaUnlocked(for: url)
             let date = meta?.date ?? (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
@@ -232,7 +352,7 @@ final class FileStorageManager {
     private func saveMeta(_ meta: PhotoMeta, for url: URL, cameraOnly: Bool = false) throws {
         let data = try JSONEncoder().encode(meta)
         guard let encrypted = cameraOnly ? CryptoManager.encryptForCamera(data) : CryptoManager.encrypt(data) else { throw CocoaError(.fileWriteUnknown) }
-        try encrypted.write(to: metaURL(for: url), options: [.atomic, .completeFileProtection])
+        try writeFile(encrypted, metaURL(for: url))
         markExcludedFromBackup(metaURL(for: url))
     }
 
@@ -261,6 +381,17 @@ final class FileStorageManager {
     /// the reference point.
     func lastEventLocation() -> CLLocation? {
         try? VaultGate.shared.withAccess { () -> CLLocation? in
+            // Action Button camera has no PIN-bound master key. A tiny
+            // camera-key anchor keeps the event-distance rule consistent
+            // across camera-only launches without exposing the gallery.
+            if let raw = try? Data(contentsOf: eventAnchorURL),
+               let data = CryptoManager.decrypt(raw),
+               let anchor = try? JSONDecoder().decode(PhotoEventAnchor.self, from: data),
+               let location = anchor.location {
+                cachedLatestEventLocation = location
+                cachedLatestEventLocationResolved = true
+                return location
+            }
             if cachedLatestEventLocationResolved { return cachedLatestEventLocation }
             let records = loadAllWithMetaUnlocked().compactMap { url, meta -> (String, PhotoMeta)? in
                 guard let meta, meta.hasLocation != false,
@@ -303,6 +434,57 @@ final class FileStorageManager {
             return result
         }
     }
+
+    /// Rebuilds the restricted-camera anchor after a successful full-vault
+    /// unlock. The anchor contains only the first frame's event location and
+    /// is encrypted with the camera key so it can be checked later by the
+    /// camera without opening the gallery.
+    func refreshEventDistanceAnchor() {
+        _ = try? VaultGate.shared.withAccess {
+            lock.lock(); defer { lock.unlock() }
+            cachedLatestEventLocation = nil
+            cachedLatestEventLocationResolved = false
+            try rebuildEventDistanceAnchorUnlocked()
+        }
+    }
+
+    /// Caller holds the storage lock and the VaultGate access. This is used
+    /// after deletion as well as after a full PIN unlock, so the distance rule
+    /// never keeps pointing at an event that no longer exists.
+    private func rebuildEventDistanceAnchorUnlocked() throws {
+            let records = loadAllWithMetaUnlocked().compactMap { _, meta -> PhotoMeta? in
+                guard let meta, meta.hasLocation != false,
+                      CLLocationCoordinate2DIsValid(.init(latitude: meta.latitude, longitude: meta.longitude)) else { return nil }
+                return meta
+            }
+            let grouped = Dictionary(grouping: records) { $0.eventID?.uuidString ?? UUID().uuidString }
+            let latest = grouped.max { lhs, rhs in
+                let leftNumber = lhs.value.compactMap { $0.eventNumber }.max() ?? 0
+                let rightNumber = rhs.value.compactMap { $0.eventNumber }.max() ?? 0
+                if leftNumber != rightNumber { return leftNumber < rightNumber }
+                let leftDate = lhs.value.map(\.date).max() ?? .distantPast
+                let rightDate = rhs.value.map(\.date).max() ?? .distantPast
+                return leftDate < rightDate
+            }?.value?.min { left, right in
+                let leftIndex = left.eventIndex ?? Int.max
+                let rightIndex = right.eventIndex ?? Int.max
+                if leftIndex != rightIndex { return leftIndex < rightIndex }
+                return left.date < right.date
+            }
+            guard let latest else {
+                try? fm.removeItem(at: eventAnchorURL)
+                cachedLatestEventLocation = nil
+                cachedLatestEventLocationResolved = true
+                return
+            }
+            let anchor = try JSONEncoder().encode(PhotoEventAnchor(latest))
+            guard let encrypted = CryptoManager.encryptForCamera(anchor) else { return }
+            try writeFile(encrypted, eventAnchorURL)
+            markExcludedFromBackup(eventAnchorURL)
+            cachedLatestEventLocation = PhotoEventAnchor(latest).location
+            cachedLatestEventLocationResolved = true
+    }
+    }
     private func overwriteUnlocked(image: UIImage, at url: URL) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let jpeg = image.jpegData(compressionQuality: 0.92), let encrypted = CryptoManager.encrypt(jpeg) else { return false }
@@ -334,14 +516,35 @@ final class FileStorageManager {
         return parent.lastPathComponent
     }
     func eventKey(for url: URL) -> String { loadMeta(for: url)?.eventID?.uuidString ?? url.path }
-    private func completeEventUnlocked(_ id: UUID) {
+    private func completeEventUnlocked(_ id: UUID) throws {
         lock.lock(); defer { lock.unlock() }
         let members = loadAll().filter { loadMeta(for: $0)?.eventID == id }
+        var updates: [(url: URL, original: Data, replacement: Data)] = []
         for url in members {
-            if var meta = loadMeta(for: url) {
-                meta.eventCount = members.count
-                try? saveMeta(meta, for: url)
+            let sidecar = metaURL(for: url)
+            let original = try Data(contentsOf: sidecar)
+            guard var meta = loadMeta(for: url) else { throw CocoaError(.fileReadCorruptFile) }
+            meta.eventCount = members.count
+            let data = try JSONEncoder().encode(meta)
+            // Finishing a short event is also available in Action Button's
+            // restricted camera. Preserve the sidecar's encryption purpose.
+            let encrypted = CryptoManager.isCameraEncrypted(original)
+                ? CryptoManager.encryptForCamera(data) : CryptoManager.encrypt(data)
+            guard let encrypted else { throw PhotoStorageError.encryptionUnavailable }
+            updates.append((sidecar, original, encrypted))
+        }
+        var written: [(url: URL, original: Data)] = []
+        do {
+            for update in updates {
+                try update.replacement.write(to: update.url, options: [.atomic, .completeFileProtection])
+                markExcludedFromBackup(update.url)
+                written.append((update.url, update.original))
             }
+        } catch {
+            for update in written.reversed() {
+                try? update.original.write(to: update.url, options: [.atomic, .completeFileProtection])
+            }
+            throw error
         }
     }
     func title(for url: URL) -> String {
@@ -418,6 +621,7 @@ final class FileStorageManager {
             try fm.removeItem(at: url)
             do {
                 if fm.fileExists(atPath: metadataURL.path) { try fm.removeItem(at: metadataURL) }
+                try? rebuildEventDistanceAnchorUnlocked()
                 return true
             } catch {
                 // Keep image and sidecar as a consistent pair after a failed
@@ -436,7 +640,12 @@ final class FileStorageManager {
         (try? VaultGate.shared.withAccess { newEventUnlocked() }) ?? CaptureContext(eventID: UUID(), folder: "Без режима", expectedCount: 1, index: 1, eventNumber: 0, generation: -1)
     }
     func save(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil, cameraOnly: Bool = false) -> URL? {
-        try? VaultGate.shared.withAccess(generation: context?.generation) { saveUnlocked(image: image, location: location, context: context, cameraOnly: cameraOnly) }
+        try? savePhoto(image: image, location: location, context: context, cameraOnly: cameraOnly)
+    }
+    func savePhoto(image: UIImage, location: CLLocation? = nil, context: CaptureContext? = nil, cameraOnly: Bool = false) throws -> URL {
+        try VaultGate.shared.withAccess(generation: context?.generation) {
+            try saveUnlocked(image: image, location: location, context: context, cameraOnly: cameraOnly)
+        }
     }
     func loadAll() -> [URL] { (try? VaultGate.shared.withAccess { loadAllUnlocked() }) ?? [] }
     func loadMeta(for url: URL) -> PhotoMeta? { try? VaultGate.shared.withAccess { loadMetaUnlocked(for: url) } }
@@ -447,7 +656,9 @@ final class FileStorageManager {
     @discardableResult func updateNote(for url: URL, note: String, generation: Int? = nil) -> Bool {
         (try? VaultGate.shared.withAccess(generation: generation) { try updateNoteUnlocked(for: url, note: note); return true }) ?? false
     }
-    func completeEvent(_ id: UUID) { try? VaultGate.shared.withAccess { completeEventUnlocked(id) } }
+    @discardableResult func completeEvent(_ id: UUID) -> Bool {
+        (try? VaultGate.shared.withAccess { try completeEventUnlocked(id); return true }) ?? false
+    }
     func moveEvents(containing urls: [URL], to folder: String) throws {
         try VaultGate.shared.withAccess { try moveEventsUnlocked(containing: urls, to: folder) }
     }

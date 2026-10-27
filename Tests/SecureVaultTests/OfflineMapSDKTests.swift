@@ -1,6 +1,8 @@
 import XCTest
 import UIKit
 import MapLibre
+import CoreLocation
+@testable import SecureVault
 
 /// Exercise MapLibre's real offline database with deterministic HTTP fixtures,
 /// then deny all HTTP and load the same map style from the saved pack.
@@ -31,6 +33,24 @@ final class OfflineMapSDKTests: XCTestCase {
         XCTAssertEqual(pack.state, .complete)
         XCTAssertGreaterThan(pack.progress.countOfTilesCompleted, 0)
         XCTAssertTrue(OfflineMapHTTPFixture.requestedPaths().contains { $0.hasSuffix(".png") })
+        // Rejecting an old zone index must preserve the real MapLibre pack.
+        let zoneBounds = OfflineRegionBounds(south: -0.1, west: -0.1, north: 0.1, east: 0.1)
+        let zoneRegion = OfflineRegion(id: "sdk-legacy-zone-fixture", name: "Тест", iso: "", bounds: zoneBounds)
+        let fresh = OfflinePlaceDataset(region: zoneRegion, bounds: zoneBounds, date: Date(), places: [])
+        var legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(fresh)) as? [String: Any])
+        legacyJSON.removeValue(forKey: "schemaVersion"); legacyJSON.removeValue(forKey: "source")
+        let legacy = try JSONDecoder().decode(OfflinePlaceDataset.self, from: JSONSerialization.data(withJSONObject: legacyJSON))
+        let installed = expectation(description: "Legacy zone index retained but invalidated")
+        OfflinePlacesStore.shared.install(legacy, generation: VaultGate.shared.generation) { error in
+            XCTAssertNil(error); installed.fulfill()
+        }
+        wait(for: [installed], timeout: 10)
+        XCTAssertTrue(OfflinePlacesStore.shared.dataset(for: zoneRegion.id)?.requiresSafetyUpdate == true)
+        XCTAssertFalse(legacy.snapshot.covers(CLLocation(latitude: 0, longitude: 0), settings: .init(enabled: true), now: Date()))
+        XCTAssertEqual(pack.state, .complete)
+        XCTAssertGreaterThan(pack.progress.countOfTilesCompleted, 0)
+        XCTAssertEqual(pack.context, context)
+        try OfflinePlacesStore.shared.remove(zoneRegion.id)
         OfflineMapHTTPFixture.setOffline(true)
         let styleLoaded = expectation(description: "Saved map style loads with HTTP disabled")
         let delegate = OfflineStyleDelegate { styleLoaded.fulfill() }

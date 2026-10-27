@@ -7,3 +7,6 @@ ipa_output/
 *.xcresult/
 *.xcodeproj/
 *.xcworkspace/
+
+.docx-build/
+outputs/

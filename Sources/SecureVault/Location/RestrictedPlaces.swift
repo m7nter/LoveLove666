@@ -2,6 +2,25 @@ import Foundation
 import CoreLocation
 import MapKit
 
+/// Only full-planet mirrors may answer a safety check for an arbitrary region.
+/// In particular, overpass.osm.ch contains Switzerland only and a valid empty
+/// reply outside it is not evidence that there are no restricted places.
+enum OverpassConfiguration {
+    static let worldwideEndpoints = [
+        URL(string: "https://overpass.private.coffee/api/interpreter")!,
+        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
+        URL(string: "https://overpass-api.de/api/interpreter")!,
+        URL(string: "https://lz4.overpass-api.de/api/interpreter")!,
+        URL(string: "https://z.overpass-api.de/api/interpreter")!
+    ]
+
+    static func formBody(query: String) -> Data {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        return Data(("data=" + encoded).utf8)
+    }
+}
+
 enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable {
     case playground, kindergarten, school, sports, police, security, administration, court, prosecutor, recruitment, military, government
     var id: String { rawValue }
@@ -39,17 +58,53 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
     }
     var defaultRadius: Double { [.playground, .kindergarten, .school, .sports].contains(self) ? 65 : 100 }
 
+    static let identifyingNameKeys = ["name", "name:ru", "operator", "operator:ru", "official_name"]
+
+    /// Shared by PBF classification and bounded Overpass selections. Keeping
+    /// these in one place prevents an alias recognized offline from silently
+    /// disappearing online merely because office/government tags are absent.
+    static func namePattern(for kind: RestrictedPlaceKind) -> String? {
+        switch kind {
+        case .recruitment: return "военком|военн.*комиссар|recruitment"
+        case .prosecutor: return "прокурат|prosecutor"
+        case .security: return "(^|[^а-яa-z])(фсб|уфсб|фсо|фсин|фссп|росгвард|омон|собр|следственн|fsb|security service)|федеральн.*служб.*(безопасност|охран|исполнения наказан)|национальн.*гварди|служб.*судебн.*пристав"
+        case .police: return "(^|[^а-яa-z])(мвд|умвд|омвд|гибдд|дпс|полици|police)|(министерств|управлен|отдел).*внутренн.*дел"
+        case .administration: return "администраци|мэрия"
+        case .playground: return "детск.*площадк|игров.*площадк|playground"
+        default: return nil
+        }
+    }
+
+    /// ICU/PCRE boundaries used by the Swift classifier are not accepted by
+    /// every Overpass regex engine when mixed with Cyrillic character classes.
+    /// Use conservative word fragments for the remote filter and run the
+    /// authoritative classifier again on the returned tags.
+    static func overpassNamePattern(for kind: RestrictedPlaceKind) -> String? {
+        switch kind {
+        case .recruitment: return "военком|военн.*комиссар|recruitment"
+        case .prosecutor: return "прокурат|prosecutor"
+        case .security: return "фсб|уфсб|фсо|фсин|фссп|росгвард|омон|собр|следственн|fsb|security service|федеральн.*служб.*безопасност|федеральн.*служб.*охран|национальн.*гварди"
+        case .police: return "мвд|умвд|омвд|гибдд|дпс|полици|police|министерств.*внутренн.*дел|управлен.*внутренн.*дел|отдел.*внутренн.*дел"
+        case .administration: return "администраци|мэрия"
+        case .playground: return "детск.*площадк|игров.*площадк|playground"
+        default: return nil
+        }
+    }
+
     static func classify(_ tags: [String: String]) -> RestrictedPlaceKind? {
         // A specific service wins over a generic office=government / amenity=police.
-        let text = ["name", "name:ru", "operator", "operator:ru", "official_name"].compactMap { tags[$0] }.joined(separator: " ").lowercased()
-        func matches(_ pattern: String) -> Bool { text.range(of: pattern, options: .regularExpression) != nil }
-        if tags["government"] == "recruitment" || matches("военком|военн.*комиссар|recruitment") { return .recruitment }
-        if tags["government"] == "prosecutor" || matches("прокурат|prosecutor") { return .prosecutor }
+        let text = identifyingNameKeys.compactMap { tags[$0] }.joined(separator: " ").lowercased()
+        func matches(_ kind: RestrictedPlaceKind) -> Bool {
+            guard let pattern = namePattern(for: kind) else { return false }
+            return text.range(of: pattern, options: .regularExpression) != nil
+        }
+        if tags["government"] == "recruitment" || matches(.recruitment) { return .recruitment }
+        if tags["government"] == "prosecutor" || matches(.prosecutor) { return .prosecutor }
         if tags["amenity"] == "courthouse" || tags["government"] == "court" { return .court }
-        if ["security", "intelligence"].contains(tags["government"] ?? "") || matches("(^|[^а-яa-z])(фсб|уфсб|фсо|фсин|фссп|росгвард|омон|собр|следственн|fsb|security service)|федеральн.*служб.*(безопасност|охран|исполнения наказан)|национальн.*гварди|служб.*судебн.*пристав") { return .security }
-        if tags["amenity"] == "police" || tags["police"] != nil || tags["government"] == "police" || matches("(^|[^а-яa-z])(мвд|умвд|омвд|гибдд|дпс|полици|police)|(министерств|управлен|отдел).*внутренн.*дел") { return .police }
+        if ["security", "intelligence"].contains(tags["government"] ?? "") || matches(.security) { return .security }
+        if tags["amenity"] == "police" || tags["police"] != nil || tags["government"] == "police" || matches(.police) { return .police }
         if tags["landuse"] == "military" || tags["military"] != nil || tags["government"] == "military" { return .military }
-        if tags["amenity"] == "townhall" || tags["government"] == "administrative" || matches("администраци|мэрия") { return .administration }
+        if tags["amenity"] == "townhall" || tags["government"] == "administrative" || matches(.administration) { return .administration }
         if tags["amenity"] == "kindergarten" || tags["building"] == "kindergarten" { return .kindergarten }
         if tags["amenity"] == "school" || tags["building"] == "school" { return .school }
         // OSM uses `leisure=playground` for the usual area, but imported
@@ -58,7 +113,7 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
         // Treat those as the same protected category so a mapped fence is not
         // silently missed just because the mapper used the alternative tag.
         if tags["leisure"] == "playground" || tags["playground"] != nil
-            || matches("детск.*площадк|игров.*площадк|playground") { return .playground }
+            || matches(.playground) { return .playground }
         if ["pitch", "sports_centre", "stadium", "fitness_station", "track"].contains(tags["leisure"] ?? "") { return .sports }
         if tags["office"] == "government" || tags["government"] != nil { return .government }
         return nil
@@ -166,6 +221,7 @@ struct RestrictedPlace: Codable {
         if let point { let p = xy(point); nearest = hypot(p.x, p.y) }
         for line in lines + outerRings + innerRings {
             let points = line.map(xy)
+            guard !points.isEmpty else { continue }
             if let p = points.first { nearest = min(nearest, hypot(p.x, p.y)) }
             for index in 1..<points.count {
                 let a = points[index - 1], b = points[index]
@@ -199,19 +255,11 @@ enum RestrictedPlacesParser {
         let response = try JSONDecoder().decode(Response.self, from: data)
         // Overpass can return HTTP 200 with a timeout remark and partial elements.
         guard response.remark == nil else { throw RestrictedPlacesError.incompleteResponse }
-        // A bbox query can return a relation whose members are incomplete at a
-        // tile edge. Keep valid objects from the response instead of rejecting
-        // the entire tile because of one malformed element.
-        let classified = response.elements.filter { RestrictedPlaceKind.classify($0.tags ?? [:]) != nil }
-        let places = classified.compactMap { element in
-            do { return try parseElement(element) }
-            catch { return nil }
-        }
-        // A response containing only malformed restricted objects is not safe
-        // to install. Mixed responses are accepted so one broken relation at a
-        // tile edge cannot discard valid nearby zones.
-        if !classified.isEmpty && places.isEmpty { throw RestrictedPlacesError.invalidGeometry }
-        return places
+        // `out geom` has no geometry bbox: a selected object must contain its
+        // full geometry even when the selection itself uses a bbox. Dropping
+        // one malformed playground while accepting another distant object
+        // made an incomplete response look like verified absence nearby.
+        return try response.elements.compactMap(parseElement)
     }
 
     private static func parseElement(_ element: Element) throws -> RestrictedPlace? {
@@ -286,17 +334,27 @@ struct RestrictedPlacesSnapshot {
     let fetchedAt: Date
     let places: [RestrictedPlace]
     let isEmptyOnlineResponse: Bool
+    /// nil denotes a full offline dataset / a query containing every category.
+    /// A filtered online answer cannot verify categories enabled afterwards.
+    let queriedKinds: Set<RestrictedPlaceKind>?
+    let hasTrustedProvenance: Bool
     var offlineBounds: OfflineRegionBounds? = nil
     var offlineCoverage: [OfflineRegionBounds]? = nil
     var index: RestrictedPlaceIndex? = nil
     init(center: CLLocation, radius: Double, fetchedAt: Date, places: [RestrictedPlace],
          offlineBounds: OfflineRegionBounds? = nil, offlineCoverage: [OfflineRegionBounds]? = nil,
-         index: RestrictedPlaceIndex? = nil, isEmptyOnlineResponse: Bool = false) {
+         index: RestrictedPlaceIndex? = nil, isEmptyOnlineResponse: Bool = false,
+         queriedKinds: Set<RestrictedPlaceKind>? = nil, hasTrustedProvenance: Bool = true) {
         self.center = center; self.radius = radius; self.fetchedAt = fetchedAt; self.places = places
         self.isEmptyOnlineResponse = isEmptyOnlineResponse
+        self.queriedKinds = queriedKinds
+        self.hasTrustedProvenance = hasTrustedProvenance
         self.offlineBounds = offlineBounds; self.offlineCoverage = offlineCoverage; self.index = index
     }
     func covers(_ location: CLLocation, settings: RestrictedPlaceSettings, now: Date) -> Bool {
+        guard hasTrustedProvenance else { return false }
+        if let queriedKinds,
+           !Set(RestrictedPlaceKind.allCases.filter(settings.includes)).isSubset(of: queriedKinds) { return false }
         let age = now.timeIntervalSince(fetchedAt)
         if let offlineCoverage {
             return age >= 0 && age < 30 * 86400 && offlineCoverage.contains {

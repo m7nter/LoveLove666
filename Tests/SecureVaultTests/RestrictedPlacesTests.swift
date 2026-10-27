@@ -57,6 +57,22 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: location(0.02), settings: enabled, snapshot: snapshot([]), now: now).blocked)
     }
     func testSuccessfulEmptyResponseAllowsCapture() { XCTAssertFalse(decision(location()).blocked) }
+    func testFilteredOnlineCacheCannotVerifyNewlyEnabledCategory() {
+        var settings = enabled
+        settings.disabledKinds = Set(RestrictedPlaceKind.allCases.filter { $0 != .school })
+        let cached = RestrictedPlacesSnapshot(center: location(), radius: 1_100,
+                                              fetchedAt: now, places: [], queriedKinds: [.school])
+        XCTAssertFalse(RestrictedPlacesPolicy.evaluate(location: location(), settings: settings,
+                                                       snapshot: cached, now: now).blocked)
+        settings.disabledKinds.remove(.playground)
+        XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: location(), settings: settings,
+                                                      snapshot: cached, now: now).blocked)
+    }
+    func testEmptyLegacyGeometryDoesNotCrashDistanceEvaluation() {
+        let malformed = RestrictedPlace(id: "empty", kind: .playground, name: nil,
+                                        point: nil, lines: [[]], outerRings: [], innerRings: [])
+        XCTAssertEqual(malformed.distance(from: location()), .infinity)
+    }
     func testEmptyOnlineResponseCanBeConfiguredToBlockCapture() {
         var settings = enabled
         settings.blockOnEmptyOnlineResponse = true
@@ -115,6 +131,14 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertThrowsError(try parse("{\"elements\":[{\"type\":\"node\",\"id\":1,\"lat\":100,\"lon\":0,\"tags\":{\"amenity\":\"school\"}}]}"))
         XCTAssertThrowsError(try RestrictedPlacesParser.joinRings([[.init(lat: 0, lon: 0), .init(lat: 1, lon: 1)]]))
     }
+    func testMixedResponseCannotSilentlyDiscardMalformedNearbyObject() {
+        XCTAssertThrowsError(try parse("""
+        {"elements":[
+          {"type":"node","id":1,"lat":0.005,"lon":0,"tags":{"amenity":"school"}},
+          {"type":"way","id":2,"tags":{"leisure":"playground"}}
+        ]}
+        """))
+    }
     func testSiteRelationUsesMemberGeometryWithoutInventingAPerimeter() throws {
         let places = try parse("""
         {"elements":[{"type":"relation","id":3,"tags":{"amenity":"school","type":"site"},"members":[
@@ -141,6 +165,24 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertEqual(RestrictedPlaceKind.classify(["name":"Детская площадка во дворе"]), .playground)
         XCTAssertNil(RestrictedPlaceKind.classify(["amenity":"cafe"]))
     }
+
+    func testOnlineQueryRequestsNameKeysAndLeavesUnicodeClassificationLocal() {
+        let fixtures: [(String, String, RestrictedPlaceKind)] = [
+            ("name:ru", "Детская площадка", .playground),
+            ("official_name", "УФСБ России", .security),
+            ("operator", "Министерство внутренних дел", .police),
+            ("operator:ru", "Прокуратура", .prosecutor),
+            ("name", "Военный комиссариат", .recruitment)
+        ]
+        let query = RestrictedPlacesMonitor.query(near: location(), radius: 1_100)
+        for (key, value, kind) in fixtures {
+            XCTAssertEqual(RestrictedPlaceKind.classify(["building": "yes", key: value]), kind)
+            XCTAssertTrue(query.contains(key), "Online query must search \(key)")
+        }
+        XCTAssertFalse(query.contains("фсб"))
+        XCTAssertFalse(query.contains("детск"))
+        XCTAssertTrue(query.contains("[\"name:ru\"]"))
+    }
     func testDefaultDistancesPersistenceAndReset() throws {
         XCTAssertEqual(enabled.radius(for: .school), 65)
         XCTAssertEqual(enabled.radius(for: .security), 100)
@@ -162,6 +204,24 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertTrue(query.contains("out tags geom"))
         XCTAssertFalse(query.contains("out center"))
         XCTAssertTrue(query.contains("[playground]"))
+        XCTAssertFalse(query.contains("[^"), "Overpass must accept the name filter on Cyrillic-capable mirrors")
+        XCTAssertTrue(query.contains("фсб"))
+    }
+
+    func testSafetyChecksNeverUseRegionalOnlyOverpassMirror() {
+        let hosts = OverpassConfiguration.worldwideEndpoints.compactMap(\.host)
+        XCTAssertFalse(hosts.contains("overpass.osm.ch"))
+        XCTAssertFalse(hosts.contains("overpass.nchc.org.tw"))
+        XCTAssertTrue(hosts.contains("overpass-api.de"))
+        XCTAssertEqual(Set(hosts).count, hosts.count)
+    }
+
+    func testOverpassFormEncodingPreservesPlusAndAmpersand() throws {
+        let query = "[out:json];nwr[name=\"A+B & C\"];out;"
+        let body = try XCTUnwrap(String(data: OverpassConfiguration.formBody(query: query), encoding: .utf8))
+        XCTAssertFalse(body.contains("+"))
+        XCTAssertFalse(body.dropFirst(5).contains("&"))
+        XCTAssertEqual(String(body.dropFirst(5)).removingPercentEncoding, query)
     }
 
     func testClosestReasonsAreShownFirst() {

@@ -18,11 +18,12 @@ struct PhotoEditorView: View {
     let image: UIImage
     let location: CLLocation?
     let heading: CLHeading?
+    var saveFailureMessage: String? = nil
     let onSave: (UIImage, @escaping (Bool) -> Void) -> Void
     let onDiscard: () -> Void
     var body: some View {
         PhotoEditingView(image: image, addWatermark: true, location: location, heading: heading,
-                         onSave: onSave, onCancel: onDiscard)
+                         saveFailureMessage: saveFailureMessage, onSave: onSave, onCancel: onDiscard)
     }
 }
 
@@ -33,11 +34,14 @@ struct PhotoEditingView: View {
     let heading: CLHeading?
     let onSave: (UIImage, @escaping (Bool) -> Void) -> Void
     let onCancel: () -> Void
+    let saveFailureMessage: String?
     private let accessGeneration = VaultGate.shared.generation
     init(image: UIImage, addWatermark: Bool, location: CLLocation?, heading: CLHeading?,
+         saveFailureMessage: String? = nil,
          onSave: @escaping (UIImage, @escaping (Bool) -> Void) -> Void, onCancel: @escaping () -> Void) {
         self.image = image; self.addWatermark = addWatermark
         self.location = location; self.heading = heading
+        self.saveFailureMessage = saveFailureMessage
         self.onSave = onSave; self.onCancel = onCancel
     }
     @StateObject private var templates = LabelTemplatesStore()
@@ -152,7 +156,7 @@ struct PhotoEditingView: View {
         }
         .alert("Не удалось сохранить фото", isPresented: $saveError) {
             Button("Закрыть", role: .cancel) {}
-        } message: { Text("Пометки остались в редакторе. Проверьте свободное место и повторите сохранение.") }
+        } message: { Text((saveFailureMessage ?? "Повторите сохранение.") + " Пометки остались в редакторе.") }
     }
 
     private func toolButton(_ icon: String, _ value: DrawingTool, _ label: String) -> some View {

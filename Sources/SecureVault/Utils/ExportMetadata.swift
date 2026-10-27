@@ -38,11 +38,27 @@ enum ExportMetadata {
         return "photo:\(index)"
     }
 
-    private static func firstEventIndexes(_ records: [ExportPhotoRecord]) -> Set<Int> {
-        var seen = Set<String>()
-        return Set(records.indices.filter { index in
-            seen.insert(eventKey(records[index], index: index)).inserted
-        })
+    private static func firstEventIndexes(_ records: [ExportPhotoRecord]) -> [Int] {
+        var order: [String] = []
+        var firstByEvent: [String: Int] = [:]
+        for index in records.indices {
+            let key = eventKey(records[index], index: index)
+            guard let previous = firstByEvent[key] else {
+                order.append(key); firstByEvent[key] = index
+                continue
+            }
+            let candidate = records[index].meta
+            let existing = records[previous].meta
+            let candidateIndex = candidate?.eventIndex ?? Int.max
+            let existingIndex = existing?.eventIndex ?? Int.max
+            // Attachment order can change after a clock adjustment or an
+            // arbitrary selection. The event's first frame remains its anchor.
+            if candidateIndex < existingIndex
+                || (candidateIndex == existingIndex && (candidate?.date ?? .distantFuture) < (existing?.date ?? .distantFuture)) {
+                firstByEvent[key] = index
+            }
+        }
+        return order.compactMap { firstByEvent[$0] }
     }
 
     // The numbering follows event order. A multi-photo event contributes one
@@ -53,7 +69,7 @@ enum ExportMetadata {
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.timeZone = timeZone
         formatter.dateFormat = "dd.MM.yyyy"
-        let indexes = firstEventIndexes(records).sorted()
+        let indexes = firstEventIndexes(records)
         return "Выгрузка \(formatter.string(from: exportedAt)). Координаты:\n"
             + indexes.enumerated().map { offset, index in
                 "\(offset + 1)) \(coordinates(records[index].meta) ?? "нет данных")"
@@ -61,7 +77,7 @@ enum ExportMetadata {
     }
 
     static func eventCoordinateCaption(_ records: [ExportPhotoRecord], title: String) -> String {
-        let first = firstEventIndexes(records).sorted().first
+        let first = firstEventIndexes(records).first
         let value = first.flatMap { coordinates(records[$0].meta) } ?? "нет данных"
         return "\(title). Координаты:\n\(value)"
     }
@@ -71,7 +87,7 @@ enum ExportMetadata {
         // This preset contains literally just numbered coordinates, without
         // filenames, dates, folder names, event IDs, notes or map links.
         if options == .coordinates {
-            let indexes = firstEventIndexes(records).sorted()
+            let indexes = firstEventIndexes(records)
             return indexes.enumerated().map { offset, index in
                 "\(offset + 1)) \(coordinates(records[index].meta) ?? "нет данных")"
             }.joined(separator: "\n") + "\n"
@@ -79,7 +95,7 @@ enum ExportMetadata {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.dateFormat = "dd.MM.yyyy HH:mm:ss"
-        let firstIndexes = firstEventIndexes(records)
+        let firstIndexes = Set(firstEventIndexes(records))
         return records.enumerated().map { index, record in
             var lines = ["Файл: \(record.filename)"]
             if options.contains(.coordinates) && firstIndexes.contains(index) {

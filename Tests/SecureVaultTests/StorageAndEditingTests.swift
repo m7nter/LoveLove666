@@ -153,4 +153,60 @@ final class StorageAndEditingTests: XCTestCase {
         try Data([1, 2, 3, 4, 5]).write(to: url)
         XCTAssertNil(storage.decryptedData(for: url))
     }
+
+    func testSavedCameraPhotoAndCoordinatesSurviveStorageRecreation() throws {
+        let context = event()
+        let location = CLLocation(latitude: 55.123456, longitude: 37.654321)
+        let url = try storage.savePhoto(image: image(), location: location, context: context, cameraOnly: true)
+        let reopened = FileStorageManager(directory: directory, defaults: defaults)
+        XCTAssertNotNil(reopened.loadImage(at: url))
+        let meta = try XCTUnwrap(reopened.loadMeta(for: url))
+        XCTAssertEqual(meta.eventID, context.eventID)
+        XCTAssertEqual(meta.latitude, location.coordinate.latitude)
+        XCTAssertEqual(meta.longitude, location.coordinate.longitude)
+        XCTAssertEqual(meta.eventIndex, 1)
+        XCTAssertEqual(reopened.loadAll().count, 1)
+    }
+
+    func testCompletingCameraOnlyEventKeepsItsMetadataReadableByTheCameraKey() throws {
+        let id = UUID()
+        let first = try storage.savePhoto(image: image(), context: event(id: id), cameraOnly: true)
+        let second = try storage.savePhoto(image: image(), context: event(index: 2, id: id), cameraOnly: true)
+        XCTAssertTrue(storage.completeEvent(id))
+        for url in [first, second] {
+            let sidecar = try Data(contentsOf: url.deletingPathExtension().appendingPathExtension("json"))
+            XCTAssertTrue(CryptoManager.isCameraEncrypted(sidecar),
+                          "Finishing an Action Button event must not rewrap its metadata using the locked vault key")
+            XCTAssertEqual(storage.loadMeta(for: url)?.eventCount, 2)
+        }
+    }
+
+    func testSidecarWriteFailureRollsBackPhotoAndReturnsActualError() throws {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        let failing = FileStorageManager(directory: directory, defaults: defaults, writeFile: { data, url in
+            if url.pathExtension == "json" { throw CocoaError(.fileWriteOutOfSpace) }
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+        })
+        XCTAssertThrowsError(try failing.savePhoto(image: image(), context: event(date: date), cameraOnly: true))
+        let remaining = try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("0.5"), includingPropertiesForKeys: nil)
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertTrue(failing.loadAll().isEmpty)
+    }
+
+    func testInvalidFolderSaveIsExplicitAndDoesNotWriteOutsideVault() {
+        var context = event()
+        context.folder = "../outside"
+        XCTAssertThrowsError(try storage.savePhoto(image: image(), context: context, cameraOnly: true)) { error in
+            XCTAssertEqual(error as? PhotoStorageError, .invalidFolder)
+        }
+        XCTAssertTrue(storage.loadAll().isEmpty)
+    }
+
+    func testSaveDiagnosticsDistinguishLockedDataFromFullDisk() {
+        XCTAssertTrue(PhotoStorageError.message(for: CocoaError(.fileWriteOutOfSpace)).contains("свободного места"))
+        let locked = PhotoStorageError.message(for: CocoaError(.fileReadNoPermission))
+        XCTAssertTrue(locked.contains("защищённым данным"))
+        XCTAssertFalse(locked.contains("свободного места"))
+        XCTAssertTrue(PhotoStorageError.message(for: PhotoStorageError.encryptionUnavailable).contains("Ключ шифрования"))
+    }
 }

@@ -89,16 +89,10 @@ final class OfflineMapManager: ObservableObject {
     private var suggestionAttempts = 0
     private var blockedPacks: Set<String> = []
     private let session: URLSession
-    private static let placeEndpoints = [
-        URL(string: "https://overpass-api.de/api/interpreter")!,
-        URL(string: "https://overpass.kumi.systems/api/interpreter")!,
-        URL(string: "https://overpass.private.coffee/api/interpreter")!,
-        URL(string: "https://overpass.openstreetmap.fr/api/interpreter")!,
-        URL(string: "https://overpass.osm.ch/api/interpreter")!,
-        URL(string: "https://overpass.nchc.org.tw/api/interpreter")!
-    ]
+    private static let placeEndpoints = OverpassConfiguration.worldwideEndpoints
 
     private struct PlacesCheckpoint: Codable {
+        let schemaVersion: Int?
         let generation: Int
         let region: OfflineRegion
         let tiles: [OfflineRegionBounds]
@@ -199,6 +193,7 @@ final class OfflineMapManager: ObservableObject {
             let ready = mapReady && dataset?.isCurrent == true && dataset?.isComplete == true
             let status: String
             if blockedPacks.contains(context.region.id) { status = "Достигнут лимит размера. Удалите и выберите меньшую детализацию." }
+            else if dataset?.requiresSafetyUpdate == true { status = "Обновите базу зон: исправлена проверка полноты данных. Скачанная карта сохранена." }
             else if ready { status = "Карта и зоны готовы · объекты \(dataset!.date.formatted(date: .numeric, time: .omitted))" }
             else if mapReady, let dataset, dataset.isCurrent { status = "Карта готова; зоны загружены частично (пропущено ячеек: \(dataset.failedTileCount ?? 0)). Можно продолжить загрузку." }
             else if mapReady && dataset == nil { status = "Карта готова; объекты запретных зон ещё не загружены" }
@@ -323,24 +318,39 @@ final class OfflineMapManager: ObservableObject {
         appendPlacesActivity("Начата загрузка региональной базы \(source.name) · \(source.size)")
         let directory = checkpointDirectory
         let partialURL = directory.appendingPathComponent(".\(region.id).pbf.part")
+        let validatorURL = partialURL.appendingPathExtension("resume.json")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let existingBytes: Int64 = ((try? FileManager.default.attributesOfItem(atPath: partialURL.path)[.size]) as? NSNumber)?.int64Value ?? 0
+        let validator = (try? Data(contentsOf: validatorURL)).flatMap { try? JSONDecoder().decode(OSMPBFDownloadPolicy.Validator.self, from: $0) }
+        let resumeBytes = OSMPBFDownloadPolicy.resumeOffset(partialBytes: existingBytes, sourceURL: url, validator: validator)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         request.setValue("Calculator/1.2.0 (com.securevault.app)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 240
-        if existingBytes > 0 { request.setValue("bytes=\(existingBytes)-", forHTTPHeaderField: "Range") }
+        if resumeBytes > 0 {
+            request.setValue("bytes=\(resumeBytes)-", forHTTPHeaderField: "Range")
+            request.setValue(validator?.ifRange, forHTTPHeaderField: "If-Range")
+        }
         pbfTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let (bytes, response) = try await self.session.bytes(for: request)
-                guard let http = response as? HTTPURLResponse,
-                      http.statusCode == 200 || (http.statusCode == 206 && existingBytes > 0) else {
+                var (bytes, response) = try await self.session.bytes(for: request)
+                if (response as? HTTPURLResponse)?.statusCode == 416, resumeBytes > 0 {
+                    // A prior run may have downloaded the last byte before it
+                    // was terminated. Restart cleanly rather than repeating
+                    // an unsatisfiable Range forever.
+                    var freshRequest = request
+                    freshRequest.setValue(nil, forHTTPHeaderField: "Range")
+                    freshRequest.setValue(nil, forHTTPHeaderField: "If-Range")
+                    (bytes, response) = try await self.session.bytes(for: freshRequest)
+                }
+                guard let http = response as? HTTPURLResponse else {
                     throw URLError(.badServerResponse)
                 }
-                let append = http.statusCode == 206 && existingBytes > 0
-                let startBytes = append ? existingBytes : 0
+                let plan = try OSMPBFDownloadPolicy.responsePlan(http, requestedOffset: resumeBytes, requestedValidator: validator)
+                let append = plan.append
+                let startBytes = append ? resumeBytes : 0
                 if !append {
                     FileManager.default.createFile(atPath: partialURL.path, contents: nil)
                     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: partialURL.path)
@@ -348,8 +358,13 @@ final class OfflineMapManager: ObservableObject {
                 let handle = try FileHandle(forWritingTo: partialURL)
                 if append { try handle.seekToEnd() } else { try handle.truncate(atOffset: 0) }
                 defer { try? handle.close() }
-                let contentLength = response.expectedContentLength
-                let totalBytes = contentLength > 0 ? startBytes + contentLength : -1
+                let currentValidator = OSMPBFDownloadPolicy.Validator(sourceURL: url, response: http)
+                if currentValidator.ifRange != nil {
+                    try JSONEncoder().encode(currentValidator).write(to: validatorURL, options: [.atomic, .completeFileProtection])
+                } else if !append {
+                    try? FileManager.default.removeItem(at: validatorURL)
+                }
+                let totalBytes = plan.totalBytes
                 var receivedBytes = startBytes
                 var buffer = Data(); buffer.reserveCapacity(256 * 1024)
                 await MainActor.run {
@@ -405,12 +420,13 @@ final class OfflineMapManager: ObservableObject {
                         self.updatePlacesProgress()
                     }
                 }
-                let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: places)
+                let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: places, source: .regionalPBF)
                 DispatchQueue.main.async {
                     guard self.requestID == id else { return }
                     self.appendPlacesActivity("Индекс готов: найдено \(places.count) объектов")
                     OfflinePlacesStore.shared.install(dataset, generation: generation) { error in
                         try? FileManager.default.removeItem(at: partialURL)
+                        try? FileManager.default.removeItem(at: partialURL.appendingPathExtension("resume.json"))
                         self.request = nil; self.requestID = nil; self.requestGeneration = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
                         if error == nil { self.appendPlacesActivity("Региональная база установлена без пропущенных ячеек") }
                         else { self.error = "Не удалось установить локальную OSM-базу." }
@@ -420,6 +436,7 @@ final class OfflineMapManager: ObservableObject {
             } catch {
                 DispatchQueue.main.async {
                     try? FileManager.default.removeItem(at: partialURL)
+                    try? FileManager.default.removeItem(at: partialURL.appendingPathExtension("resume.json"))
                     self.request = nil; self.requestID = nil; self.downloadingPlacesID = nil; self.placeRegion = nil; self.placesProgress = nil
                     self.error = "Не удалось разобрать региональную PBF-базу OSM: \(error.localizedDescription)"
                     self.appendPlacesActivity("Ошибка индексации PBF")
@@ -461,7 +478,7 @@ final class OfflineMapManager: ObservableObject {
               let generation = requestGeneration,
               generation == VaultGate.shared.generation,
               placeTileIndex < placeTiles.count else { return }
-        let checkpoint = PlacesCheckpoint(generation: generation, region: region, tiles: placeTiles,
+        let checkpoint = PlacesCheckpoint(schemaVersion: OfflinePlaceDataset.currentSchemaVersion, generation: generation, region: region, tiles: placeTiles,
                                           nextTileIndex: placeTileIndex, places: Array(placeResults.values),
                                           successfulBounds: placeSuccessfulBounds,
                                           failedTileCount: placeFailedTileCount)
@@ -477,6 +494,7 @@ final class OfflineMapManager: ObservableObject {
         let url = checkpointURL(for: region.id)
         guard let data = try? Data(contentsOf: url),
               let checkpoint = try? JSONDecoder().decode(PlacesCheckpoint.self, from: data),
+              checkpoint.schemaVersion == OfflinePlaceDataset.currentSchemaVersion,
               checkpoint.generation == VaultGate.shared.generation,
               checkpoint.region.id == region.id,
               checkpoint.nextTileIndex < checkpoint.tiles.count else { return false }
@@ -514,7 +532,9 @@ final class OfflineMapManager: ObservableObject {
 
     private static func placeQuery(for bounds: OfflineRegionBounds) -> String {
         let filters = ["[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]", "[building~\"^(school|kindergarten)$\"]",
-                       "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[playground]", "[name~\"детск.*площадк|игров.*площадк\",i]", "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
+                       "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[playground]",
+                       "[\"name\"]", "[\"name:ru\"]", "[\"operator\"]", "[\"operator:ru\"]", "[\"official_name\"]",
+                       "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
         let selections = filters.map { "nwr(\(bounds.overpass))\($0);" }.joined()
         return "[out:json][timeout:90][maxsize:33554432];(\(selections));out tags geom;"
     }
@@ -551,8 +571,7 @@ final class OfflineMapManager: ObservableObject {
             r.setValue("application/json", forHTTPHeaderField: "Accept")
             // Form encoding is accepted by all configured Overpass mirrors.
             r.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-            r.httpBody = "data=\(encoded)".data(using: .utf8)
+            r.httpBody = OverpassConfiguration.formBody(query: query)
             r.timeoutInterval = 90
         }
         request = session.dataTask(with: r) { [weak self] data, response, error in
@@ -633,7 +652,7 @@ final class OfflineMapManager: ObservableObject {
         let complete = placeFailedTileCount == 0
         let dataset = OfflinePlaceDataset(region: region, bounds: region.bounds.expanded(by: 1500), date: Date(), places: Array(placeResults.values),
                                           coverage: complete ? nil : placeSuccessfulBounds,
-                                          failedTileCount: complete ? nil : placeFailedTileCount)
+                                          failedTileCount: complete ? nil : placeFailedTileCount, source: .worldwideOverpass)
         requestID = nil; request = nil; placeRegion = nil; placeTiles = []; placeTileIndex = 0; placeEndpointIndex = 0; placeRetryCount = 0; placeResults = [:]
         placeSuccessfulBounds = []; placeFailedTileCount = 0
         OfflinePlacesStore.shared.install(dataset, generation: generation) { [weak self] error in

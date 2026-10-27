@@ -14,6 +14,7 @@ struct VaultView: View {
     @State private var showVaultLock = false
     @State private var pendingDestination: Destination?
     @State private var saveError = false
+    @State private var saveFailureMessage: String?
     @State private var isSavingQuickPhoto = false
     let cameraOnly: Bool
     var onLock: () -> Void
@@ -59,7 +60,7 @@ struct VaultView: View {
         }) {
             Group {
                 if showEditor, let image = capturedImage {
-                    PhotoEditorView(image: image, location: capturedLocation, heading: capturedHeading, onSave: { result, complete in
+                    PhotoEditorView(image: image, location: capturedLocation, heading: capturedHeading, saveFailureMessage: saveFailureMessage, onSave: { result, complete in
                         save(result) { saved in
                             complete(saved)
                             if saved {
@@ -93,7 +94,7 @@ struct VaultView: View {
                     }
                 }
                 Button("Отбросить кадр", role: .destructive) { capturedImage = nil }
-            } message: { Text("Проверьте свободное место. Кадр события не засчитан.") }
+            } message: { Text((saveFailureMessage ?? "Повторите сохранение.") + " Кадр события не засчитан.") }
         }
         .fullScreenCover(isPresented: $showGallery) { GalleryView() }
         .fullScreenCover(isPresented: $showNotes) { NotesListView() }
@@ -114,17 +115,22 @@ struct VaultView: View {
             let label = ProtectedPreferences.string(forKey: "selectedTemplate").flatMap { $0.isEmpty ? nil : $0 }
             let context = cameraVM.pendingContext
             isSavingQuickPhoto = true
+            saveFailureMessage = nil
             cameraVM.isCapturing = true
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = WatermarkRenderer.apply(to: image, location: location, heading: heading, labelText: label)
-                let saved = FileStorageManager.shared.save(image: result, location: location, context: context, cameraOnly: cameraOnly) != nil
+                let outcome = Result { try FileStorageManager.shared.savePhoto(image: result, location: location, context: context, cameraOnly: cameraOnly) }
                 DispatchQueue.main.async {
                     isSavingQuickPhoto = false
                     cameraVM.isCapturing = false
-                    if saved {
+                    switch outcome {
+                    case .success:
                         cameraVM.didSavePhoto()
                         if cameraVM.event == nil { showCamera = false }
-                    } else { capturedImage = result; saveError = true }
+                    case .failure(let error):
+                        saveFailureMessage = PhotoStorageError.message(for: error)
+                        capturedImage = result; saveError = true
+                    }
                 }
             }
         } else { capturedImage = image; showEditor = true }
@@ -133,14 +139,21 @@ struct VaultView: View {
         let location = capturedLocation
         let context = cameraVM.pendingContext
         isSavingQuickPhoto = true
+        saveFailureMessage = nil
         cameraVM.isCapturing = true
         DispatchQueue.global(qos: .userInitiated).async {
-                let saved = FileStorageManager.shared.save(image: image, location: location, context: context, cameraOnly: cameraOnly) != nil
+            let outcome = Result { try FileStorageManager.shared.savePhoto(image: image, location: location, context: context, cameraOnly: cameraOnly) }
             DispatchQueue.main.async {
                 isSavingQuickPhoto = false
                 cameraVM.isCapturing = false
-                if saved { cameraVM.didSavePhoto() }
-                completion(saved)
+                switch outcome {
+                case .success:
+                    cameraVM.didSavePhoto()
+                    completion(true)
+                case .failure(let error):
+                    saveFailureMessage = PhotoStorageError.message(for: error)
+                    completion(false)
+                }
             }
         }
     }

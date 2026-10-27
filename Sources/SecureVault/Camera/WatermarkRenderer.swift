@@ -179,7 +179,9 @@ struct WatermarkRenderer {
             // ── ПЕРЕКРЕСТИЕ НА ФОТО ──
             if SettingsStore.shared.crosshairOnPhoto {
                 let cx = size.width / 2
-                let cy = topBarH + (size.height - topBarH) / 2
+                // The coordinate/heading strip overlays the original photo;
+                // the footer is appended outside it. Neither moves the aim.
+                let cy = size.height / 2
                 let lineLen = size.width * 0.04
                 let lineW: CGFloat = max(size.width * 0.004, 2)
 

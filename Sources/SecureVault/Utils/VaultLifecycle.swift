@@ -85,6 +85,7 @@ struct VaultDirectories {
     var disabledMarker: URL { support.appendingPathComponent("VaultDisabled.flag") }
     var pendingMarker: URL { support.appendingPathComponent("VaultErase.pending") }
     var bruteForceLockMarker: URL { support.appendingPathComponent("VaultBruteForce.locked") }
+    var installMarker: URL { support.appendingPathComponent(".install-marker") }
 }
 
 struct VaultEraseService {
@@ -225,6 +226,7 @@ final class VaultLifecycle: ObservableObject {
             destroyKey: { try CryptoManager.destroyKey() },
             destroyCodes: { try KeychainCodeStore.deleteAll() },
             preservedSupportEntries: [Bundle.main.bundleIdentifier ?? "com.securevault.app",
+                                      directories.installMarker.lastPathComponent,
                                       directories.bruteForceLockMarker.lastPathComponent])
         NotificationCenter.default.post(name: .vaultWillErase, object: nil)
         do {
@@ -289,6 +291,11 @@ final class VaultLifecycle: ObservableObject {
                             self.disabled = false
                             VaultGate.shared.allow()
                         }
+                    } else {
+                        // Photo-only erasure revokes the same write gate as a
+                        // full reset. Reopen it after the files and pending
+                        // marker are removed, otherwise all later saves fail.
+                        VaultGate.shared.allow()
                     }
                     NotesManager.shared.lastError = nil
                 case .failure(let error):

@@ -65,7 +65,8 @@ struct CameraScreen: View {
 
     var body: some View {
         ZStack {
-            CameraView(session: cameraVM.session) { scale, state in
+            CameraView(session: cameraVM.session, showsCrosshair: settings.showCrosshair,
+                       crosshairColor: settings.crosshairColor) { scale, state in
                 guard !blackScreen else { return }
                 switch state {
                 case .began:
@@ -174,11 +175,6 @@ struct CameraScreen: View {
                 }
 
                 Spacer()
-
-                // Перекрестие — центрируется именно в свободной зоне между панелями
-                if settings.showCrosshair {
-                    CrosshairView(color: settings.crosshairColor)
-                }
 
                 Spacer()
 

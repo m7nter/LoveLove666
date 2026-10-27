@@ -27,6 +27,32 @@ final class OfflinePlacesTests: XCTestCase {
         XCTAssertFalse(bounds.contains(position(54.0001).coordinate, margin: 1000))
         XCTAssertTrue(bounds.expanded(by: 1500).contains(position(54).coordinate, margin: 1015))
     }
+    func testLegacyZoneIndexRequiresSafeRefreshEvenWhenRecentlyDownloaded() throws {
+        let current = OfflinePlaceDataset(region: .init(id: "legacy-fixture", name: "Тест", iso: "", bounds: bounds),
+                                          bounds: bounds, date: Date(), places: [])
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any])
+        json.removeValue(forKey: "schemaVersion")
+        json.removeValue(forKey: "source")
+        let legacy = try JSONDecoder().decode(OfflinePlaceDataset.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertTrue(legacy.requiresSafetyUpdate)
+        XCTAssertFalse(legacy.isCurrent)
+        XCTAssertFalse(legacy.isComplete)
+        XCTAssertFalse(legacy.snapshot.covers(position(), settings: .init(enabled: true), now: Date()))
+        XCTAssertTrue(RestrictedPlacesPolicy.evaluate(location: position(), settings: .init(enabled: true), snapshot: legacy.snapshot).blocked)
+    }
+
+    func testRefreshedZoneIndexesKeepVerifiableSourceAcrossRelaunch() throws {
+        for source in [OfflinePlaceDataset.Source.regionalPBF, .worldwideOverpass] {
+            let fresh = OfflinePlaceDataset(region: .init(id: "source-fixture", name: "Тест", iso: "", bounds: bounds),
+                                            bounds: bounds, date: Date(), places: [], source: source)
+            let restored = try JSONDecoder().decode(OfflinePlaceDataset.self, from: JSONEncoder().encode(fresh))
+            XCTAssertEqual(restored.source, source)
+            XCTAssertEqual(restored.schemaVersion, OfflinePlaceDataset.currentSchemaVersion)
+            XCTAssertFalse(restored.requiresSafetyUpdate)
+            XCTAssertTrue(restored.isCurrent)
+            XCTAssertTrue(restored.snapshot.covers(position(), settings: .init(enabled: true), now: Date()))
+        }
+    }
     func testPartialOfflineDatasetNeverClaimsFailedTilesAreChecked() {
         let successfulTile = OfflineRegionBounds(south: 54.5, west: 36.5, north: 55.5, east: 37.5)
         let region = OfflineRegion(id: "partial-coverage", name: "Частичная база", iso: "", bounds: bounds)

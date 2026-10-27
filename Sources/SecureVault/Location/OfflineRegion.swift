@@ -1,6 +1,50 @@
 import Foundation
 import CoreLocation
 
+enum OSMPBFDownloadPolicy {
+    struct Validator: Codable {
+        let sourceURL: String
+        let etag: String?
+        let lastModified: String?
+        var ifRange: String? {
+            if let etag, !etag.isEmpty, !etag.hasPrefix("W/") { return etag }
+            return lastModified.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        init(sourceURL: URL, response: HTTPURLResponse) {
+            self.sourceURL = sourceURL.absoluteString
+            etag = response.value(forHTTPHeaderField: "ETag")
+            lastModified = response.value(forHTTPHeaderField: "Last-Modified")
+        }
+    }
+
+    static func resumeOffset(partialBytes: Int64, sourceURL: URL, validator: Validator?) -> Int64 {
+        guard partialBytes > 0, validator?.sourceURL == sourceURL.absoluteString,
+              validator?.ifRange != nil else { return 0 }
+        return partialBytes
+    }
+
+    static func responsePlan(_ response: HTTPURLResponse, requestedOffset: Int64,
+                             requestedValidator: Validator?) throws -> (append: Bool, totalBytes: Int64) {
+        if response.statusCode == 200 { return (false, response.expectedContentLength) }
+        guard response.statusCode == 206, requestedOffset > 0, requestedValidator?.ifRange != nil,
+              let header = response.value(forHTTPHeaderField: "Content-Range") else { throw URLError(.badServerResponse) }
+        let parts = header.split(separator: " ")
+        guard parts.count == 2, parts[0].lowercased() == "bytes" else { throw URLError(.badServerResponse) }
+        let lengths = parts[1].split(separator: "/")
+        guard lengths.count == 2, let total = Int64(lengths[1]), total > requestedOffset else { throw URLError(.badServerResponse) }
+        let range = lengths[0].split(separator: "-")
+        guard range.count == 2, let start = Int64(range[0]), let end = Int64(range[1]),
+              start == requestedOffset, end >= start, end < total,
+              response.expectedContentLength < 0 || response.expectedContentLength == end - start + 1 else { throw URLError(.badServerResponse) }
+        guard let responseURL = response.url else { throw URLError(.badServerResponse) }
+        let returned = Validator(sourceURL: responseURL, response: response)
+        if let requested = requestedValidator?.ifRange, let current = returned.ifRange, requested != current {
+            throw URLError(.badServerResponse)
+        }
+        return (true, total)
+    }
+}
+
 struct OfflineRegionBounds: Codable, Equatable {
     let south: Double, west: Double, north: Double, east: Double
     var center: CLLocationCoordinate2D { .init(latitude: (south + north) / 2, longitude: (west + east) / 2) }
@@ -65,6 +109,10 @@ struct OfflineZoneSource: Codable {
 }
 
 struct OfflinePlaceDataset: Codable {
+    static let currentSchemaVersion = 2
+    enum Source: String, Codable { case regionalPBF, worldwideOverpass }
+    let schemaVersion: Int
+    let source: Source?
     let region: OfflineRegion
     let bounds: OfflineRegionBounds
     let date: Date
@@ -76,7 +124,10 @@ struct OfflinePlaceDataset: Codable {
     let failedTileCount: Int?
 
     init(region: OfflineRegion, bounds: OfflineRegionBounds, date: Date, places: [RestrictedPlace],
-         coverage: [OfflineRegionBounds]? = nil, failedTileCount: Int? = nil) {
+         coverage: [OfflineRegionBounds]? = nil, failedTileCount: Int? = nil,
+         source: Source = .regionalPBF) {
+        self.schemaVersion = Self.currentSchemaVersion
+        self.source = source
         self.region = region
         self.bounds = bounds
         self.date = date
@@ -86,11 +137,13 @@ struct OfflinePlaceDataset: Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case region, bounds, date, places, coverage, failedTileCount
+        case schemaVersion, source, region, bounds, date, places, coverage, failedTileCount
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        source = try container.decodeIfPresent(Source.self, forKey: .source)
         region = try container.decode(OfflineRegion.self, forKey: .region)
         bounds = try container.decode(OfflineRegionBounds.self, forKey: .bounds)
         date = try container.decode(Date.self, forKey: .date)
@@ -98,12 +151,16 @@ struct OfflinePlaceDataset: Codable {
         coverage = try container.decodeIfPresent([OfflineRegionBounds].self, forKey: .coverage)
         failedTileCount = try container.decodeIfPresent(Int.self, forKey: .failedTileCount)
     }
-    var isCurrent: Bool { Date().timeIntervalSince(date) >= 0 && Date().timeIntervalSince(date) < 30 * 86400 }
-    var isComplete: Bool { (failedTileCount ?? 0) == 0 && coverage == nil }
+    /// Old indexes did not record provenance; a regional-only mirror could
+    /// have filled their tiles with false empty answers. Keep the map itself,
+    /// but require one safe replacement of these unprovable zone indexes.
+    var requiresSafetyUpdate: Bool { schemaVersion != Self.currentSchemaVersion || source == nil }
+    var isCurrent: Bool { !requiresSafetyUpdate && Date().timeIntervalSince(date) >= 0 && Date().timeIntervalSince(date) < 30 * 86400 }
+    var isComplete: Bool { !requiresSafetyUpdate && (failedTileCount ?? 0) == 0 && coverage == nil }
     var snapshot: RestrictedPlacesSnapshot {
         .init(center: CLLocation(latitude: bounds.center.latitude, longitude: bounds.center.longitude),
               radius: 0, fetchedAt: date, places: places, offlineBounds: bounds,
-              offlineCoverage: coverage)
+              offlineCoverage: coverage, hasTrustedProvenance: !requiresSafetyUpdate)
     }
 }
 
@@ -192,5 +249,10 @@ final class OfflinePlacesStore {
         var snapshot = dataset.snapshot
         snapshot.index = indices[dataset.region.id]
         return snapshot
+    }
+
+    func requiresSafetyUpdate(at location: CLLocation) -> Bool {
+        loadIfNeeded()
+        return datasets.values.contains { $0.requiresSafetyUpdate && $0.bounds.contains(location.coordinate) }
     }
 }

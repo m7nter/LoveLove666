@@ -268,7 +268,10 @@ final class CameraViewModel: NSObject, ObservableObject {
     }
 
     func finishEvent() {
-        if let current = event { FileStorageManager.shared.completeEvent(current.eventID) }
+        if let current = event, !FileStorageManager.shared.completeEvent(current.eventID) {
+            error = "Не удалось завершить событие. Кадры сохранены, повторите завершение после разблокировки iPhone."
+            return
+        }
         event = nil; pendingContext = nil; persistEvent()
     }
     private func reconcileEvent() {
