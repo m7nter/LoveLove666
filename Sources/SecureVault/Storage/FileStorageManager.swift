@@ -458,14 +458,15 @@ final class FileStorageManager {
                 return meta
             }
             let grouped = Dictionary(grouping: records) { $0.eventID?.uuidString ?? UUID().uuidString }
-            let latest = grouped.max { lhs, rhs in
+            let latestGroup = grouped.max { lhs, rhs in
                 let leftNumber = lhs.value.compactMap { $0.eventNumber }.max() ?? 0
                 let rightNumber = rhs.value.compactMap { $0.eventNumber }.max() ?? 0
                 if leftNumber != rightNumber { return leftNumber < rightNumber }
                 let leftDate = lhs.value.map(\.date).max() ?? .distantPast
                 let rightDate = rhs.value.map(\.date).max() ?? .distantPast
                 return leftDate < rightDate
-            }?.value?.min { left, right in
+            }
+            let latest = latestGroup?.value.min { left, right in
                 let leftIndex = left.eventIndex ?? Int.max
                 let rightIndex = right.eventIndex ?? Int.max
                 if leftIndex != rightIndex { return leftIndex < rightIndex }
