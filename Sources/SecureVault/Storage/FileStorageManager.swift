@@ -484,7 +484,6 @@ final class FileStorageManager {
             cachedLatestEventLocation = PhotoEventAnchor(latest).location
             cachedLatestEventLocationResolved = true
     }
-    }
     private func overwriteUnlocked(image: UIImage, at url: URL) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let jpeg = image.jpegData(compressionQuality: 0.92), let encrypted = CryptoManager.encrypt(jpeg) else { return false }
