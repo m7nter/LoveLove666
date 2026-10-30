@@ -18,7 +18,7 @@ struct VaultAccessView: View {
                         .font(.title2.bold())
                     Text(isSetup
                          ? "Придумайте код из 4–8 цифр. После сохранения хранилище откроется сразу. Затем вход: AC → ваш код → =."
-                         : "Введите свой код. Если старый код потерян, можно удалить оставшиеся данные и создать пустое хранилище.")
+                         : "Введите свой личный код.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Section(isSetup ? "Новый код" : "Ваш код") {
@@ -37,9 +37,6 @@ struct VaultAccessView: View {
                 Section {
                     Button(isSetup ? "Создать и открыть хранилище" : "Открыть хранилище", action: submit)
                         .accessibilityIdentifier("access.submit")
-                }
-                Section {
-                    VaultResetButton()
                 }
             }
             .navigationTitle("Настройка доступа")
@@ -95,20 +92,6 @@ struct VaultAccessView: View {
             }
             else { error = "Код не подошёл или действует минутная пауза после нескольких попыток." }
         }
-    }
-}
-
-struct VaultResetButton: View {
-    @State private var confirm = false
-    var body: some View {
-        Button("Создать пустое хранилище", role: .destructive) { confirm = true }
-            .accessibilityIdentifier("access.reset")
-            .alert("Удалить данные и начать заново?", isPresented: $confirm) {
-                Button("Удалить и создать заново", role: .destructive) { VaultLifecycle.shared.erase(.reset) }
-                Button("Отмена", role: .cancel) {}
-            } message: {
-                Text("Фото, заметки, настройки и старые коды будут удалены. После очистки появится создание нового кода. Удалённые данные не восстановятся.")
-            }
     }
 }
 

@@ -5,7 +5,6 @@ struct CalculatorView: View {
     @StateObject private var vm = CalculatorViewModel()
     @StateObject private var conversion = ConversionModel()
     var onUnlock: (String) -> Void
-    var onAccess: () -> Void
     /// Legacy installs with the known compatibility code must complete setup
     /// before the hidden calculator entry can unlock the vault.
     var vaultEntryEnabled: Bool = true
@@ -101,7 +100,6 @@ struct CalculatorView: View {
                 .modifier(CalculatorNumberTransition())
                 .accessibilityIdentifier("calculator.display")
                 .onTapGesture(count: 2) { UIPasteboard.general.string = vm.display }
-                .onLongPressGesture(minimumDuration: 3, perform: onAccess)
         }.frame(maxWidth: .infinity, minHeight: 90, alignment: .bottomTrailing)
     }
     private func conversionDisplay(size: CGFloat) -> some View {

@@ -113,8 +113,7 @@ struct SecureVaultApp: App {
                 isUnlocked: $isUnlocked,
                 isCameraOnly: $isCameraOnly,
                 onStartTimer: startTimer,
-                onStopTimer: stopTimer,
-                onBlockedAccess: { showsRecovery = true }
+                onStopTimer: stopTimer
             )
             .id(lifecycle.generation)
             }
@@ -238,7 +237,6 @@ struct RootView: View {
     @Binding var isCameraOnly: Bool
     let onStartTimer: () -> Void
     let onStopTimer: () -> Void
-    let onBlockedAccess: () -> Void
     @State private var needsSetup = false
     @State private var showAccess = false
     @State private var showWelcomePrompt = false
@@ -257,7 +255,6 @@ struct RootView: View {
                     Text("Не удалось прочитать код") .font(.title2)
                     Text(accessError).font(.callout)
                     Button("Повторить") { refreshAccess() }
-                    VaultResetButton()
                     Button("Калькулятор") { showAccess = false }
                 }.padding(24)
             } else if showAccess {
@@ -268,7 +265,7 @@ struct RootView: View {
             } else if isUnlocked {
                 VaultView(onLock: lock)
             } else {
-                CalculatorView(onUnlock: unlock, onAccess: openHiddenAccess,
+                CalculatorView(onUnlock: unlock,
                                vaultEntryEnabled: !needsSetup && !VaultLifecycle.shared.isBruteForceLocked)
             }
         }
@@ -336,16 +333,10 @@ struct RootView: View {
     private var isUITestFixture: Bool {
         #if DEBUG && targetEnvironment(simulator)
         let args = ProcessInfo.processInfo.arguments
-        return args.contains("--test-legacy-lock") || args.contains("--test-calculator")
+        return args.contains("--test-calculator")
         #else
         return false
         #endif
-    }
-    private func openHiddenAccess() {
-        guard !VaultLifecycle.shared.isBruteForceLocked else { return }
-        guard !VaultLifecycle.shared.blocksUI else { onBlockedAccess(); return }
-        refreshAccess()
-        showAccess = true
     }
     private func unlock(_ pin: String) {
         guard !VaultLifecycle.shared.isBruteForceLocked else { return }

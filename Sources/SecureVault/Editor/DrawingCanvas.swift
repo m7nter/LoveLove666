@@ -22,12 +22,18 @@ enum AnnotationRenderer {
     private static let context = CIContext()
 
     static func blurred(_ image: UIImage) -> UIImage? {
-        guard let input = CIImage(image: image) else { return nil }
+        // UIImageView and UIImage.draw apply the photo's EXIF orientation,
+        // while Core Image reads its underlying pixel layout. Flatten that
+        // orientation first so the blurred layer has exactly the same portrait
+        // or landscape bounds as the visible photo. Otherwise aspect-fit adds
+        // unblurred bands above and below portrait camera images.
+        guard let normalized = image.normalized(),
+              let input = CIImage(image: normalized) else { return nil }
         let output = input.clampedToExtent()
-            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: image.size.width * 0.025])
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: input.extent.width * 0.025])
             .cropped(to: input.extent)
         guard let cg = context.createCGImage(output, from: input.extent) else { return nil }
-        return UIImage(cgImage: cg, scale: image.scale, orientation: .up)
+        return UIImage(cgImage: cg, scale: normalized.scale, orientation: .up)
     }
 
     static func render(image: UIImage, shapes: [DrawnShape]) -> UIImage {

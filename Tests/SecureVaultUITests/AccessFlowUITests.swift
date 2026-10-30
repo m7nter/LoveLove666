@@ -9,12 +9,15 @@ final class AccessFlowUITests: XCTestCase {
         }
     }
 
-    func testLegacyDisabledInstallCanCreateVaultLockAndUnlockAgain() {
+    func testResetInstallAutomaticallyPromptsForPINAndPersistsIt() {
         let app = XCUIApplication()
         app.launchArguments = ["--test-legacy-lock"]
         app.launch()
-        openHiddenAccess(app)
+        // The reset fixture simulates an installation which needs a new PIN.
+        // Setup must be presented automatically, without a hidden recovery
+        // gesture or a way to destroy an existing vault from the calculator.
         createVault(app, code: "4826")
+        dismissWelcomeIfPresented(app)
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 10))
         app.buttons["Калькулятор"].tap()
         for key in ["AC", "4", "8", "2", "6", "="] {
@@ -34,7 +37,7 @@ final class AccessFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 5))
     }
 
-    func testResetIsAvailableEvenWhenOldCodeSurvives() {
+    func testLongPressDoesNotExposeRecoveryOrResetAndPINStillWorks() {
         let app = XCUIApplication()
         app.launchArguments = ["--test-calculator"]
         app.launch()
@@ -44,16 +47,23 @@ final class AccessFlowUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Хранилище"].exists)
         XCTAssertFalse(app.staticTexts["Калькулятор 1.1.0 (3)"].exists)
         app.tapCoordinate(x: 0.08, y: 0.40)
-        openHiddenAccess(app)
-        app.buttons["access.reset"].tap()
-        app.alerts.buttons["Удалить и создать заново"].tap()
-        openHiddenAccess(app)
-        createVault(app, code: "5804")
+        let display = app.staticTexts["calculator.display"]
+        XCTAssertTrue(display.waitForExistence(timeout: 10))
+        display.press(forDuration: 3.2)
+        XCTAssertFalse(app.secureTextFields["access.code"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["access.reset"].exists)
+        XCTAssertFalse(app.staticTexts["Настройка доступа"].exists)
+        XCTAssertTrue(app.buttons["calculator.menu"].exists)
+        for key in ["AC", "1", "3", "5", "7", "="] {
+            XCTAssertTrue(app.buttons["calculator.key." + key].waitForExistence(timeout: 10))
+            app.buttons["calculator.key." + key].tap()
+        }
         XCTAssertTrue(app.staticTexts["Хранилище"].waitForExistence(timeout: 10))
         app.terminate()
         app.launchArguments = []
         app.launch()
-        for key in ["AC", "5", "8", "0", "4", "="] {
+        XCTAssertFalse(app.secureTextFields["access.confirmation"].exists)
+        for key in ["AC", "1", "3", "5", "7", "="] {
             XCTAssertTrue(app.buttons["calculator.key." + key].waitForExistence(timeout: 10))
             app.buttons["calculator.key." + key].tap()
         }
@@ -100,13 +110,14 @@ final class AccessFlowUITests: XCTestCase {
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         confirmation.tap(); confirmation.typeText(code)
         let submit = app.buttons["access.submit"]
+        XCTAssertFalse(app.buttons["access.reset"].exists)
         if !submit.isHittable { app.swipeUp() }
         submit.tap()
     }
-    private func openHiddenAccess(_ app: XCUIApplication) {
-        let display = app.staticTexts["calculator.display"]
-        XCTAssertTrue(display.waitForExistence(timeout: 20))
-        display.press(forDuration: 3.2)
+
+    private func dismissWelcomeIfPresented(_ app: XCUIApplication) {
+        let experienced = app.buttons["welcome.skipGuide"]
+        if experienced.waitForExistence(timeout: 5) { experienced.tap() }
     }
 }
 

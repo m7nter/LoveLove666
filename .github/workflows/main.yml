@@ -64,12 +64,30 @@ jobs:
           print('Tests use:', candidates[0]['name'])
           PY
 
+      - name: Boot test simulator
+        timeout-minutes: 7
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          simulator = os.environ['TEST_SIMULATOR_ID']
+          devices = json.loads(subprocess.check_output(
+              ['xcrun', 'simctl', 'list', 'devices', '--json'], timeout=30))['devices']
+          device = next(d for group in devices.values() for d in group if d['udid'] == simulator)
+          if device['state'] != 'Booted':
+              subprocess.run(['xcrun', 'simctl', 'boot', simulator], check=True, timeout=60)
+          # Previously the first explicit boot/wait happened only after tests.
+          # Fail here with simulator output instead of hanging after compilation.
+          subprocess.run(['xcrun', 'simctl', 'bootstatus', simulator, '-b'], check=True, timeout=300)
+          print('Simulator is ready for test execution.', flush=True)
+          PY
+
       - name: Run storage, editing and recovery tests
+        id: tests
         run: |
           python3 - <<'PY'
           import os
+          import signal
           import subprocess
-          import sys
 
           command = [
               "xcodebuild", "test",
@@ -83,15 +101,48 @@ jobs:
               "-derivedDataPath", os.path.join(os.environ["GITHUB_WORKSPACE"], "test_build"),
               "-resultBundlePath", os.path.join(os.environ["GITHUB_WORKSPACE"], "TestResults.xcresult"),
           ]
-          process = subprocess.Popen(command)
+          process = subprocess.Popen(command, start_new_session=True)
           try:
               status = process.wait(timeout=1200)
           except subprocess.TimeoutExpired:
-              print("Simulator tests exceeded 20 minutes; continuing to Release build.", flush=True)
-              process.kill()
-              process.wait()
+              print("Simulator tests exceeded 20 minutes; this run is not validated for distribution.", flush=True)
+              # Stop child test runners as well as xcodebuild so they cannot
+              # leave the simulator busy during diagnostics/Release compilation.
+              os.killpg(process.pid, signal.SIGTERM)
+              try:
+                  process.wait(timeout=15)
+              except subprocess.TimeoutExpired:
+                  os.killpg(process.pid, signal.SIGKILL)
+                  process.wait()
               raise SystemExit(124)
           raise SystemExit(status)
+          PY
+
+      - name: Collect simulator failure diagnostics
+        if: failure()
+        timeout-minutes: 2
+        run: |
+          mkdir -p ci-diagnostics
+          python3 - <<'PY'
+          import os, pathlib, shutil, subprocess
+          output = pathlib.Path('ci-diagnostics')
+          commands = {
+              'simulator-devices.log': ['xcrun', 'simctl', 'list', 'devices'],
+              'test-host.log': ['xcrun', 'simctl', 'spawn', os.environ.get('TEST_SIMULATOR_ID', ''),
+                                'log', 'show', '--last', '5m', '--style', 'compact',
+                                '--predicate', 'process == "SecureVault" OR process == "testmanagerd"'],
+          }
+          for name, command in commands.items():
+              with (output / name).open('w') as log:
+                  try:
+                      subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=35)
+                  except subprocess.TimeoutExpired:
+                      log.write('\nDiagnostic command timed out.\n')
+          reports = pathlib.Path.home() / 'Library/Logs/DiagnosticReports'
+          candidates = [p for p in reports.glob('*') if p.is_file()
+                        and any(s in p.name for s in ('SecureVault', 'Simulator', 'testmanagerd'))]
+          for report in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[:15]:
+              shutil.copy2(report, output / report.name)
           PY
 
       - name: Upload test results
@@ -99,7 +150,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LoveLove666-TestResults
-          path: TestResults.xcresult
+          path: |
+            TestResults.xcresult
+            ci-diagnostics/
           if-no-files-found: ignore
 
       - name: Capture calculator preview
@@ -129,9 +182,11 @@ jobs:
             UI-previews/
 
       - name: Build app
-        if: always()
+        id: release
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
+          set +e
           xcodebuild \
             -project SecureVault.xcodeproj \
             -scheme SecureVault \
@@ -146,10 +201,11 @@ jobs:
             -derivedDataPath "$GITHUB_WORKSPACE/build" \
             build 2>&1 | tee "$RUNNER_TEMP/release-build.log"
           build_status=${PIPESTATUS[0]}
+          set -e
           if [ "$build_status" -ne 0 ]; then
-            grep -E "error:|fatal error:|BUILD FAILED|SwiftCompile|CompileSwift|linker command failed" "$RUNNER_TEMP/release-build.log" | tail -40 | while IFS= read -r line; do
+            grep -E "error:|fatal error:|BUILD FAILED|linker command failed" "$RUNNER_TEMP/release-build.log" | tail -40 | while IFS= read -r line; do
               echo "::error title=Xcode release diagnostic::$line"
-            done
+            done || true
             tail -40 "$RUNNER_TEMP/release-build.log" | while IFS= read -r line; do
               echo "::error title=Xcode release log::$line"
             done
@@ -157,10 +213,14 @@ jobs:
           exit "$build_status"
 
       - name: Package into IPA
-        if: always()
+        id: package
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' && steps.release.outcome == 'success' }}
         run: |
           APP_PATH="$GITHUB_WORKSPACE/build/Build/Products/Release-iphoneos/SecureVault.app"
           test -d "$APP_PATH"
+          EXECUTABLE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")
+          test -s "$APP_PATH/$EXECUTABLE_NAME"
+          xcrun lipo -verify_arch arm64 "$APP_PATH/$EXECUTABLE_NAME"
           echo "Found app at: $APP_PATH"
           mkdir -p "$GITHUB_WORKSPACE/ipa_output/Payload"
           cp -r "$APP_PATH" "$GITHUB_WORKSPACE/ipa_output/Payload/"
@@ -169,10 +229,18 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/SecureVault.ipa"
 
       - name: Upload IPA artifact
-        if: always()
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: LoveLove666-IPA
           path: SecureVault.ipa
           retention-days: 30
+
+      - name: Upload Release build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LoveLove666-ReleaseLog
+          path: ${{ runner.temp }}/release-build.log
+          if-no-files-found: ignore
 
