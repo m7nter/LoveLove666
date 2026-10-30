@@ -93,12 +93,25 @@ final class AccessFlowUITests: XCTestCase {
         XCTAssertTrue(gallery.waitForExistence(timeout: 10)); gallery.tap()
         let settings = app.buttons["gallery.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10)); settings.tap()
-        let avatar = app.images["settings.footerAvatar"]
-        for _ in 0..<6 {
-            if avatar.exists { break }
-            app.swipeUp()
+        let choosePhoto = app.buttons["Выбрать фото"]
+        // Settings uses a virtualised List. Full-screen swipes can skip the
+        // entire avatar row and reach the bottom before AX instantiates it.
+        // Stop on the real row control, then check the image and its model-
+        // dependent delete action; do not mistake an offscreen row for loss.
+        for _ in 0..<16 {
+            if choosePhoto.isHittable { break }
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.78))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.54))
+            start.press(forDuration: 0.05, thenDragTo: end)
         }
+        XCTAssertTrue(choosePhoto.isHittable)
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Footer-avatar-after-unlock"; screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let avatar = app.descendants(matching: .any).matching(identifier: "settings.footerAvatar").firstMatch
         XCTAssertTrue(avatar.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Удалить"].exists,
+                      "The delete control exists only while the decoded saved avatar is present")
     }
 
     private func createVault(_ app: XCUIApplication, code: String) {

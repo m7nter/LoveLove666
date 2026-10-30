@@ -52,7 +52,7 @@ struct VaultView: View {
         }
         .onDisappear {
             cameraVM.stopSession()
-            LocationManager.shared.stop()
+            LocationManager.shared.releaseForegroundUpdates()
         }
         .fullScreenCover(isPresented: $showCamera, onDismiss: {
             showEditor = false; capturedImage = nil; cameraVM.stopSession()

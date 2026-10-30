@@ -166,6 +166,92 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertNil(RestrictedPlaceKind.classify(["amenity":"cafe"]))
     }
 
+    func testApprovedEducationTagsDoNotRequireLegacyAmenityOrBuildingTags() throws {
+        for kind in [RestrictedPlaceKind.school, .kindergarten] {
+            let tags = ["education": kind.rawValue]
+            XCTAssertEqual(RestrictedPlaceKind.classify(tags), kind)
+            let data = try JSONSerialization.data(withJSONObject: ["elements": [
+                ["type": "node", "id": 1, "lat": 0.0, "lon": 0.0, "tags": tags]
+            ]])
+            let places = try RestrictedPlacesParser.parse(data)
+            XCTAssertEqual(places.count, 1)
+            XCTAssertEqual(places.first?.kind, kind)
+            XCTAssertTrue(decision(location(), places).blocked,
+                          "An active education-only facility must block within its configured radius")
+        }
+    }
+
+    func testDualEducationAndAmenityTagsProduceOneFacility() throws {
+        let data = try JSONSerialization.data(withJSONObject: ["elements": [
+            ["type": "node", "id": 1, "lat": 0.0, "lon": 0.0,
+             "tags": ["amenity": "school", "education": "school"]]
+        ]])
+        let places = try RestrictedPlacesParser.parse(data)
+        XCTAssertEqual(places.count, 1)
+        XCTAssertEqual(places.first?.kind, .school)
+    }
+
+    func testExplicitChildFacilityTypeWinsOverGovernmentOwnerAliases() {
+        for key in ["amenity", "education"] {
+            XCTAssertEqual(RestrictedPlaceKind.classify([
+                key: "school", "operator": "Администрация города", "name": "Школа № 1"
+            ]), .school)
+            XCTAssertEqual(RestrictedPlaceKind.classify([
+                key: "kindergarten", "operator": "Министерство внутренних дел", "name": "Детский сад МВД"
+            ]), .kindergarten)
+        }
+    }
+
+    func testDisabledGovernmentOwnerCategoryCannotHideActiveChildFacility() throws {
+        let fixtures: [(String, RestrictedPlaceKind, String, RestrictedPlaceKind)] = [
+            ("amenity", .school, "Администрация города", .administration),
+            ("education", .kindergarten, "Министерство внутренних дел", .police)
+        ]
+        for (key, kind, owner, disabledOwnerKind) in fixtures {
+            let data = try JSONSerialization.data(withJSONObject: ["elements": [
+                ["type": "node", "id": 1, "lat": 0.0, "lon": 0.0,
+                 "tags": [key: kind.rawValue, "operator": owner]]
+            ]])
+            let places = try RestrictedPlacesParser.parse(data)
+            var settings = enabled
+            settings.disabledKinds.insert(disabledOwnerKind)
+            XCTAssertEqual(places.first?.kind, kind)
+            XCTAssertTrue(decision(location(), places, settings: settings).blocked,
+                          "Disabling the owner's category must not disable an active school or kindergarten")
+        }
+    }
+
+    func testSchoolBuildingFallbackDoesNotOverrideCurrentPoliceService() {
+        XCTAssertEqual(RestrictedPlaceKind.classify(["building": "school", "amenity": "police"]), .police)
+        XCTAssertEqual(RestrictedPlaceKind.classify([
+            "building": "kindergarten", "operator": "Министерство внутренних дел"
+        ]), .police)
+    }
+
+    func testEducationClassificationDoesNotGuessUnknownOrLifecyclePrefixedTags() {
+        XCTAssertNil(RestrictedPlaceKind.classify(["education": "yes"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["education": "university"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["disused:education": "school"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["construction:education": "kindergarten"]))
+    }
+
+    func testOnlineQueryIncludesApprovedEducationSchema() {
+        let query = RestrictedPlacesMonitor.query(near: location(), radius: 1_100)
+        XCTAssertTrue(query.contains("[education~\"^(kindergarten|school)$\"]"),
+                      "Education-only schools and kindergartens must be requested online")
+    }
+
+    func testOnlineEducationQueryRespectsIndividualCategorySwitches() {
+        for kind in [RestrictedPlaceKind.school, .kindergarten] {
+            var settings = enabled
+            settings.disabledKinds = Set(RestrictedPlaceKind.allCases.filter { $0 != kind })
+            let query = RestrictedPlacesMonitor.query(near: location(), radius: 1_100, settings: settings)
+            XCTAssertTrue(query.contains("[education~\"^(\(kind.rawValue))$\"]"))
+            let other: RestrictedPlaceKind = kind == .school ? .kindergarten : .school
+            XCTAssertFalse(query.contains(other.rawValue), "A disabled educational category must not be queried")
+        }
+    }
+
     func testOnlineQueryRequestsNameKeysAndLeavesUnicodeClassificationLocal() {
         let fixtures: [(String, String, RestrictedPlaceKind)] = [
             ("name:ru", "Детская площадка", .playground),
@@ -205,7 +291,8 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertFalse(query.contains("out center"))
         XCTAssertTrue(query.contains("[playground]"))
         XCTAssertFalse(query.contains("[^"), "Overpass must accept the name filter on Cyrillic-capable mirrors")
-        XCTAssertTrue(query.contains("фсб"))
+        XCTAssertFalse(query.contains("фсб"))
+        XCTAssertTrue(query.contains("[\"name:ru\"]"))
     }
 
     func testSafetyChecksNeverUseRegionalOnlyOverpassMirror() {

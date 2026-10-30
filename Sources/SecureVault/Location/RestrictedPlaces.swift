@@ -92,6 +92,11 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
     }
 
     static func classify(_ tags: [String: String]) -> RestrictedPlaceKind? {
+        // An explicit active facility type describes this object, while an
+        // operator/name may merely identify its municipal or МВД owner.
+        // education=* and amenity=* are equivalent active education schemas.
+        if tags["amenity"] == "kindergarten" || tags["education"] == "kindergarten" { return .kindergarten }
+        if tags["amenity"] == "school" || tags["education"] == "school" { return .school }
         // A specific service wins over a generic office=government / amenity=police.
         let text = identifyingNameKeys.compactMap { tags[$0] }.joined(separator: " ").lowercased()
         func matches(_ kind: RestrictedPlaceKind) -> Bool {
@@ -105,8 +110,10 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
         if tags["amenity"] == "police" || tags["police"] != nil || tags["government"] == "police" || matches(.police) { return .police }
         if tags["landuse"] == "military" || tags["military"] != nil || tags["government"] == "military" { return .military }
         if tags["amenity"] == "townhall" || tags["government"] == "administrative" || matches(.administration) { return .administration }
-        if tags["amenity"] == "kindergarten" || tags["building"] == "kindergarten" { return .kindergarten }
-        if tags["amenity"] == "school" || tags["building"] == "school" { return .school }
+        // A building's original design remains a fallback; a current explicit
+        // service above may occupy a repurposed school/kindergarten building.
+        if tags["building"] == "kindergarten" { return .kindergarten }
+        if tags["building"] == "school" { return .school }
         // OSM uses `leisure=playground` for the usual area, but imported
         // Russian datasets also contain playground nodes/ways with a
         // `playground=*` key and Russian names without the leisure tag.
@@ -216,7 +223,18 @@ struct RestrictedPlace: Codable {
             }
             return inside
         }
-        if outerRings.contains(where: contains) && !innerRings.contains(where: contains) { return 0 }
+        // Valid multipolygons can contain an outer island inside an inner
+        // courtyard, followed by another hole in that island. Subtracting
+        // every inner ring from the union of all outers erased those islands.
+        // Count the containing shells/holes so each nested outer restores its
+        // own protected territory. Disjoint site footprints remain a union.
+        if innerRings.isEmpty {
+            if outerRings.contains(where: contains) { return 0 }
+        } else {
+            let containingOuters = outerRings.reduce(0) { $0 + (contains($1) ? 1 : 0) }
+            let containingInners = innerRings.reduce(0) { $0 + (contains($1) ? 1 : 0) }
+            if containingOuters > containingInners { return 0 }
+        }
         var nearest = Double.infinity
         if let point { let p = xy(point); nearest = hypot(p.x, p.y) }
         for line in lines + outerRings + innerRings {
@@ -293,6 +311,12 @@ enum RestrictedPlacesParser {
                     return RestrictedPlace(id: "relation/\(element.id)", kind: kind,
                         name: tags["name:ru"] ?? tags["name"], point: nil, lines: lines, outerRings: outer, innerRings: [])
                 }
+                // `out geom` does not supply the geometry of nested relation
+                // members. Never accept just the directly supplied ways as a
+                // complete boundary when an outer/inner child is unresolved.
+                guard !members.contains(where: {
+                    $0.type == "relation" && ($0.role.isEmpty || $0.role == "outer" || $0.role == "inner")
+                }) else { throw RestrictedPlacesError.invalidGeometry }
                 for role in ["outer", "inner"] {
                     let relevant = members.filter { $0.type == "way" && ($0.role == role || (role == "outer" && $0.role.isEmpty)) }
                     let fragments = try relevant.map { member -> [OSMCoordinate] in

@@ -43,7 +43,12 @@
     <string>Координаты нужны для геометок и проверки расстояния до запретных территорий, если контроль включён.</string>
 
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Location is used to geotag your photos.</string>
+    <string>Постоянная геолокация поддерживает GPS в фоне, чтобы при открытии камеры быстрее получать точные координаты. История перемещений не записывается.</string>
+
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>location</string>
+    </array>
 
     <key>UILaunchScreen</key>
     <dict/>

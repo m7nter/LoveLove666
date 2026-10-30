@@ -43,7 +43,7 @@ struct VaultAccessView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Калькулятор", action: onCalculator)
+                    if !isSetup { Button("Калькулятор", action: onCalculator) }
                 }
             }
             .tint(.orange)

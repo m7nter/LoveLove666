@@ -76,7 +76,18 @@ struct SecureVaultApp: App {
                 NotesManager.shared.migrateLegacyIfNeeded()
             }
         }
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--test-legacy-lock") {
+            // @StateObject may construct the lifecycle before this fixture
+            // writes its legacy marker. Explicitly run the real reset instead
+            // of depending on the singleton's earlier cached marker state.
+            lifecycle.erase(.reset)
+        } else {
+            lifecycle.resumePendingErase()
+        }
+        #else
         lifecycle.resumePendingErase()
+        #endif
     }
 
     private func prepareInstallIdentity() {
@@ -130,9 +141,17 @@ struct SecureVaultApp: App {
             }
             .onAppear {
                 if lifecycle.blocksUI { showsRecovery = true }
+                configureContinuousGPS()
             }
             .onChange(of: isUnlocked) { unlocked in
                 if !unlocked { CryptoManager.lockVault() }
+                else { configureContinuousGPS() }
+            }
+            .onReceive(SettingsStore.shared.$continuousGPSEnabled.dropFirst()) { enabled in
+                configureContinuousGPS(enabled: enabled)
+            }
+            .onChange(of: lifecycle.isErasing) { erasing in
+                if !erasing { configureContinuousGPS() }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
                 // A device lock always ends the authenticated session, even
@@ -170,6 +189,7 @@ struct SecureVaultApp: App {
                     }
                 case .active:
                     privacyCover = false
+                    configureContinuousGPS()
                     if lifecycle.blocksUI { lifecycle.resumePendingErase() }
                     if !lifecycle.blocksUI {
                         guard enforceInactivityIfNeeded() else {
@@ -192,6 +212,26 @@ struct SecureVaultApp: App {
                 }
             }
         }
+    }
+
+    private func configureContinuousGPS(enabled requestedValue: Bool? = nil) {
+        #if DEBUG && targetEnvironment(simulator)
+        // XCTest/UI fixtures manage their own deterministic coordinates and
+        // must not acquire background GPS or present an extra permission alert.
+        return
+        #else
+        let manager = LocationManager.shared
+        guard !lifecycle.isErasing, !lifecycle.blocksUI, !lifecycle.isBruteForceLocked else {
+            manager.stop(); return
+        }
+        let enabled = requestedValue ?? SettingsStore.shared.continuousGPSEnabled
+        guard enabled else { manager.setContinuousUpdatesEnabled(false); return }
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        guard let code = try? KeychainCodeStore.readChecked("mainCode"), !code.isEmpty, code != "2026" else {
+            manager.setContinuousUpdatesEnabled(false); return
+        }
+        manager.setContinuousUpdatesEnabled(true)
+        #endif
     }
 
     private func startTimer() {
@@ -241,6 +281,9 @@ struct RootView: View {
     @State private var showAccess = false
     @State private var showWelcomePrompt = false
     @State private var showWelcomeGuide = false
+    #if DEBUG && targetEnvironment(simulator)
+    @State private var showRadarPreview = false
+    #endif
     @State private var accessError: String?
     @State private var accessChecked = false
     @AppStorage("welcomeGuidePromptVersion") private var welcomeGuidePromptVersion = 0
@@ -290,6 +333,20 @@ struct RootView: View {
         .sheet(isPresented: $showWelcomeGuide) {
             WelcomeGuideView()
         }
+        #if DEBUG && targetEnvironment(simulator)
+        .onAppear {
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("--test-calculator") && args.contains("--preview-radar") {
+                RestrictedPlacesMonitor.shared.seedRadarPreview()
+                showRadarPreview = true
+            }
+        }
+        .sheet(isPresented: $showRadarPreview) {
+            RestrictedPlacesRadarView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        #endif
     }
 
     private func refreshAccess(initial: Bool = false) {

@@ -9,6 +9,7 @@ struct CameraScreen: View {
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var restrictedPlaces = RestrictedPlacesMonitor.shared
     @State private var blackScreen = false
+    @State private var showRadar = false
     @State private var savedBrightness: CGFloat?
     @State private var savedIdleTimer: Bool?
     @State private var pinchStart: Double?
@@ -67,7 +68,7 @@ struct CameraScreen: View {
         ZStack {
             CameraView(session: cameraVM.session, showsCrosshair: settings.showCrosshair,
                        crosshairColor: settings.crosshairColor) { scale, state in
-                guard !blackScreen else { return }
+                guard !blackScreen, !showRadar else { return }
                 switch state {
                 case .began:
                     pinchStart = cameraVM.zoom
@@ -108,6 +109,17 @@ struct CameraScreen: View {
                         }
                     }
                     Spacer()
+                    if settings.restrictedPlaces.enabled {
+                        Button { showRadar = true } label: {
+                            Label("Радар", systemImage: "map.fill")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 11).padding(.vertical, 9)
+                                .background(.black.opacity(0.55), in: Capsule())
+                        }
+                        .foregroundStyle(.orange)
+                        .disabled(cameraVM.isCapturing)
+                        .accessibilityIdentifier("camera.radar")
+                    }
                     if let loc = locationManager.location {
                         HStack(spacing: 4) {
                             Text("±\(Int(loc.horizontalAccuracy))м")
@@ -257,22 +269,13 @@ struct CameraScreen: View {
                 Color.black.ignoresSafeArea().contentShape(Rectangle())
             }
         }
-        .background(ThreeFingerDoubleTap(enabled: settings.blackScreenEnabled) { setBlackScreen(!blackScreen) })
+        .background(ThreeFingerDoubleTap(enabled: settings.blackScreenEnabled && !showRadar) { setBlackScreen(!blackScreen) })
         .statusBarHidden(blackScreen)
         .persistentSystemOverlays(blackScreen ? .hidden : .automatic)
         .onAppear {
             restrictedPlaces.start()
-            cameraVM.startSession()
             locationManager.requestAndStart()
-            if settings.volumeButtonCaptureEnabled {
-                VolumeButtonHandler.shared.onTrigger = {
-                    guard !isCaptureBlocked, !blackScreen else { return }
-                    cameraVM.capturePhoto { img, loc, hdg in
-                        onCapture(img, loc, hdg)
-                    }
-                }
-                VolumeButtonHandler.shared.start()
-            }
+            resumeCameraControls()
         }
         .onDisappear {
             restrictedPlaces.stop()
@@ -281,13 +284,37 @@ struct CameraScreen: View {
             cameraVM.stopSession()
         }
         .onChange(of: scenePhase) { phase in
-            if phase != .active { restrictedPlaces.stop(); setBlackScreen(false); cameraVM.stopSession() }
-            else { restrictedPlaces.start(); cameraVM.startSession(); locationManager.requestAndStart() }
+            if phase != .active {
+                restrictedPlaces.stop(); setBlackScreen(false); cameraVM.stopSession()
+                VolumeButtonHandler.shared.stop()
+            } else {
+                restrictedPlaces.start(); locationManager.requestAndStart(); resumeCameraControls()
+            }
+        }
+        .onChange(of: showRadar) { presented in
+            if presented { cameraVM.stopSession(); VolumeButtonHandler.shared.stop() }
+            else { resumeCameraControls() }
+        }
+        .sheet(isPresented: $showRadar) {
+            RestrictedPlacesRadarView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .onChange(of: settings.blackScreenEnabled) { if !$0 { setBlackScreen(false) } }
         .alert("Камера", isPresented: Binding(get: { cameraVM.error != nil }, set: { if !$0 { cameraVM.error = nil } })) {
             Button("Закрыть") { cameraVM.error = nil }
         } message: { Text(cameraVM.error ?? "") }
+    }
+
+    private func resumeCameraControls() {
+        guard scenePhase == .active, !showRadar, !blackScreen else { return }
+        cameraVM.startSession()
+        guard settings.volumeButtonCaptureEnabled else { return }
+        VolumeButtonHandler.shared.onTrigger = {
+            guard !isCaptureBlocked, !blackScreen, !showRadar else { return }
+            cameraVM.capturePhoto { img, loc, hdg in onCapture(img, loc, hdg) }
+        }
+        VolumeButtonHandler.shared.start()
     }
 
     private func setBlackScreen(_ enabled: Bool) {
@@ -305,7 +332,7 @@ struct CameraScreen: View {
             if let brightness = savedBrightness { UIScreen.main.brightness = brightness }
             if let idleTimer = savedIdleTimer { UIApplication.shared.isIdleTimerDisabled = idleTimer }
             savedBrightness = nil; savedIdleTimer = nil
-            if scenePhase == .active { cameraVM.startSession() }
+            if scenePhase == .active && !showRadar { cameraVM.startSession() }
         }
         NotificationCenter.default.post(name: .blackScreenChanged, object: enabled)
     }

@@ -109,7 +109,9 @@ struct OfflineZoneSource: Codable {
 }
 
 struct OfflinePlaceDataset: Codable {
-    static let currentSchemaVersion = 2
+    // Version 3 includes education=school/kindergarten, which older extracted
+    // indexes discarded even when present in the downloaded regional source.
+    static let currentSchemaVersion = 3
     enum Source: String, Codable { case regionalPBF, worldwideOverpass }
     let schemaVersion: Int
     let source: Source?
@@ -151,9 +153,8 @@ struct OfflinePlaceDataset: Codable {
         coverage = try container.decodeIfPresent([OfflineRegionBounds].self, forKey: .coverage)
         failedTileCount = try container.decodeIfPresent(Int.self, forKey: .failedTileCount)
     }
-    /// Old indexes did not record provenance; a regional-only mirror could
-    /// have filled their tiles with false empty answers. Keep the map itself,
-    /// but require one safe replacement of these unprovable zone indexes.
+    /// Older indexes either lack reliable provenance or predate supported
+    /// educational tags. Keep map tiles, but rebuild those incomplete indexes.
     var requiresSafetyUpdate: Bool { schemaVersion != Self.currentSchemaVersion || source == nil }
     var isCurrent: Bool { !requiresSafetyUpdate && Date().timeIntervalSince(date) >= 0 && Date().timeIntervalSince(date) < 30 * 86400 }
     var isComplete: Bool { !requiresSafetyUpdate && (failedTileCount ?? 0) == 0 && coverage == nil }

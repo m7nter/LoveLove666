@@ -5,7 +5,7 @@ import CoreLocation
 /// Actual protobuf bytes exercise both PBF passes rather than mocking the
 /// final places. Coordinates are synthetic and independent of any user.
 final class OSMPBFParserTests: XCTestCase {
-    private let table = ["", "amenity", "school", "leisure", "playground", "type", "multipolygon", "site", "outer", "inner"]
+    private let table = ["", "amenity", "school", "leisure", "playground", "type", "multipolygon", "site", "outer", "inner", "education", "kindergarten"]
 
     private func varint(_ value: UInt64) -> Data {
         var value = value, result = Data()
@@ -68,6 +68,22 @@ final class OSMPBFParserTests: XCTestCase {
         XCTAssertEqual(place.outerRings.count, 1)
         XCTAssertEqual(place.distance(from: position(0.005, 0.005)), 0)
         XCTAssertEqual(place.distance(from: position(0.005, -0.0003)), 33.4, accuracy: 1)
+    }
+
+    func testEducationOnlyNodesAndTerritorySurviveBothPBFPasses() throws {
+        let schoolWay = field(3, bytes: field(1, 10) + packed(2, [10]) + packed(3, [2])
+            + packed(8, [zigzag(1), zigzag(1), zigzag(1), zigzag(1), zigzag(-3)]))
+        let group = squareNodes + schoolWay
+            + node(5, lat: 50_000, lon: 50_000, keys: [10], values: [2])
+            + node(6, lat: 60_000, lon: 60_000, keys: [10], values: [11])
+        let places = try parse(pbf(group))
+        XCTAssertEqual(places.count, 3)
+        XCTAssertEqual(places.first { $0.id == "node/5" }?.kind, .school)
+        XCTAssertEqual(places.first { $0.id == "node/6" }?.kind, .kindergarten)
+        let school = try XCTUnwrap(places.first { $0.id == "way/10" })
+        XCTAssertEqual(school.kind, .school)
+        XCTAssertEqual(school.outerRings.count, 1)
+        XCTAssertEqual(school.distance(from: position(0.005, 0.005)), 0)
     }
 
     func testMultipolygonWithEmptyRolesJoinsReversedFragmentsIntoTerritory() throws {

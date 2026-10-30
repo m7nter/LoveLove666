@@ -9,6 +9,12 @@ final class RestrictedPlacesMonitor: ObservableObject {
     static let shared = RestrictedPlacesMonitor()
     @Published private(set) var decision = CaptureZoneDecision.disabled
     @Published private(set) var nearbyPlaces: [RestrictedPlaceSummary] = []
+    @Published private(set) var radarPlaces: [RestrictedPlace] = []
+    @Published private(set) var radarIsVerified = false
+    @Published private(set) var radarRevision = 0
+    private var radarSourceDate: Date?
+    private var radarSourceIsOffline = false
+    private var radarSettings: RestrictedPlaceSettings?
     @Published private(set) var lastCheckSummary = "Проверка ещё не выполнялась"
     private var snapshot: RestrictedPlacesSnapshot?
     private var requestTask: Task<Void, Never>?
@@ -57,6 +63,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     func stop() {
         active = false; timer?.cancel(); timer = nil
         cancelRequest()
+        clearRadar()
     }
 
     func retryNow() {
@@ -95,6 +102,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         previousKinds = enabledKinds
         guard settings.enabled else {
             cancelRequest(); snapshot = nil; nextRequest = .distantPast
+            clearRadar()
             publish(.disabled); return
         }
         let location = LocationManager.shared.location.flatMap { $0.timestamp >= activationDate ? $0 : nil }
@@ -114,6 +122,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         let usingOfflineFallback = settings.checkMode == .offline
             || (settings.checkMode == .automatic && failureCount > 0 && !onlineSnapshotIsUsable && offlineSnapshot != nil)
         let effectiveSnapshot = usingOfflineFallback ? offlineSnapshot : (settings.checkMode == .offline ? nil : snapshot)
+        updateRadar(snapshot: effectiveSnapshot, location: location, settings: settings)
         if settings.checkMode == .offline, offlineSnapshot == nil {
             if let location, OfflinePlacesStore.shared.requiresSafetyUpdate(at: location) {
                 publish(.init(blocked: true, message: "Обновите базу зон: исправлена проверка полноты данных. Откройте офлайн-карты и нажмите «Продолжить / обновить зоны». Скачанная карта сохранена."))
@@ -146,11 +155,60 @@ final class RestrictedPlacesMonitor: ObservableObject {
         if nearbyPlaces != newValue.nearby { nearbyPlaces = newValue.nearby }
     }
 
+    private func clearRadar() {
+        if radarIsVerified || !radarPlaces.isEmpty {
+            radarPlaces = []; radarIsVerified = false; radarRevision += 1
+        }
+        radarSourceDate = nil; radarSettings = nil
+    }
+
+    private func updateRadar(snapshot: RestrictedPlacesSnapshot?, location: CLLocation?, settings: RestrictedPlaceSettings) {
+        guard let places = RestrictedPlacesRadarPolicy.places(location: location, settings: settings, snapshot: snapshot),
+              let snapshot else { clearRadar(); return }
+        let isOffline = snapshot.offlineBounds != nil || snapshot.offlineCoverage != nil
+        if !radarIsVerified || radarSourceDate != snapshot.fetchedAt || radarSourceIsOffline != isOffline
+            || radarSettings != settings || radarPlaces.map(\.id) != places.map(\.id) {
+            radarPlaces = places
+            radarSourceDate = snapshot.fetchedAt; radarSourceIsOffline = isOffline; radarSettings = settings
+            radarRevision += 1
+        }
+        if !radarIsVerified { radarIsVerified = true }
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    /// Isolated UI-preview data; neither this entry point nor its launch flag
+    /// exists in a device build. No live OSM/GPS request is made by the fixture.
+    func seedRadarPreview() {
+        let user = CLLocation(coordinate: .init(latitude: 55, longitude: 37), altitude: 0,
+            horizontalAccuracy: 2, verticalAccuracy: 1, timestamp: Date())
+        LocationManager.shared.location = user
+        let places = [
+            RestrictedPlace(id: "preview-playground", kind: .playground, name: "Детская площадка",
+                point: .init(lat: 55.0004, lon: 37), lines: [], outerRings: [], innerRings: []),
+            RestrictedPlace(id: "preview-kindergarten", kind: .kindergarten, name: "Детский сад",
+                point: nil, lines: [], outerRings: [[.init(lat: 54.9994, lon: 37.002),
+                    .init(lat: 55.0004, lon: 37.002), .init(lat: 55.0004, lon: 37.004),
+                    .init(lat: 54.9994, lon: 37.004), .init(lat: 54.9994, lon: 37.002)]], innerRings: []),
+            RestrictedPlace(id: "preview-school", kind: .school, name: "Школа",
+                point: .init(lat: 55.002, lon: 36.998), lines: [], outerRings: [], innerRings: []),
+            RestrictedPlace(id: "preview-police", kind: .police, name: "Участковый пункт полиции",
+                point: .init(lat: 54.998, lon: 36.997), lines: [], outerRings: [], innerRings: [])
+        ]
+        let settings = RestrictedPlaceSettings(enabled: true)
+        SettingsStore.shared.restrictedPlaces = settings
+        let data = RestrictedPlacesSnapshot(center: user, radius: 1_500, fetchedAt: Date(), places: places)
+        snapshot = data
+        updateRadar(snapshot: data, location: user, settings: settings)
+        publish(RestrictedPlacesPolicy.evaluate(location: user, settings: settings, snapshot: data))
+        lastCheckSummary = "Данные для проверки интерфейса"
+    }
+    #endif
+
     static func query(near location: CLLocation, radius: Double) -> String {
         query(near: location, radius: radius, settings: nil)
     }
 
-    private static func query(near location: CLLocation, radius: Double, settings: RestrictedPlaceSettings?) -> String {
+    static func query(near location: CLLocation, radius: Double, settings: RestrictedPlaceSettings?) -> String {
         let lat = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), location.coordinate.latitude)
         let lon = String(format: "%.7f", locale: Locale(identifier: "en_US_POSIX"), location.coordinate.longitude)
         let enabled = settings.map { value in
@@ -171,10 +229,10 @@ final class RestrictedPlacesMonitor: ObservableObject {
         if includes(.playground) {
             filters += ["[leisure=playground]", "[playground]"]
         }
-        // Overpass uses POSIX regex and does not support UTF-8 multibyte
-        // literals in regular expressions. A Cyrillic name regex therefore
-        // returns HTTP 400 on otherwise healthy mirrors. Request the small
-        // set of identifying keys by existence instead; the authoritative
+        // Earlier remote name patterns mixed Cyrillic/Latin character ranges
+        // and were rejected by otherwise healthy mirrors. Query identifying
+        // keys by existence within the same bounded area instead; the
+        // authoritative
         // RestrictedPlaceKind.classify() applies the Russian aliases after
         // decoding the returned tags.
         let nameAliasKinds: [RestrictedPlaceKind] = [.playground, .police, .security, .administration, .prosecutor, .recruitment]
@@ -188,6 +246,10 @@ final class RestrictedPlacesMonitor: ObservableObject {
         if includes(.administration) { amenities.append("townhall") }
         if includes(.court) { amenities.append("courthouse") }
         addRegex("amenity", amenities)
+        var education: [String] = []
+        if includes(.kindergarten) { education.append("kindergarten") }
+        if includes(.school) { education.append("school") }
+        addRegex("education", education)
         var buildings: [String] = []
         if includes(.kindergarten) { buildings.append("kindergarten") }
         if includes(.school) { buildings.append("school") }

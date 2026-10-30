@@ -53,6 +53,23 @@ final class OfflinePlacesTests: XCTestCase {
             XCTAssertTrue(restored.snapshot.covers(position(), settings: .init(enabled: true), now: Date()))
         }
     }
+
+    func testIndexesBuiltBeforeEducationTagSupportRequireRefresh() throws {
+        let fresh = OfflinePlaceDataset(region: .init(id: "education-fixture", name: "Тест", iso: "", bounds: bounds),
+                                        bounds: bounds, date: Date(), places: [])
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(fresh)) as? [String: Any])
+        json["schemaVersion"] = 2
+        let previous = try JSONDecoder().decode(OfflinePlaceDataset.self,
+            from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertTrue(previous.requiresSafetyUpdate)
+        XCTAssertFalse(previous.snapshot.covers(position(), settings: .init(enabled: true), now: Date()))
+    }
+
+    func testOfflineOverpassQueryIncludesEducationTaggedSchoolsAndKindergartens() {
+        let query = OfflineMapManager.placeQuery(for: bounds)
+        XCTAssertTrue(query.contains("[education~\"^(school|kindergarten)$\"]"))
+        XCTAssertTrue(query.contains("out tags geom"), "Distance must use territory geometry, not only a centre")
+    }
     func testPartialOfflineDatasetNeverClaimsFailedTilesAreChecked() {
         let successfulTile = OfflineRegionBounds(south: 54.5, west: 36.5, north: 55.5, east: 37.5)
         let region = OfflineRegion(id: "partial-coverage", name: "Частичная база", iso: "", bounds: bounds)

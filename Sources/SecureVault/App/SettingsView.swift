@@ -1,9 +1,12 @@
 import SwiftUI
+import CoreLocation
 
 struct SettingsView: View {
     @ObservedObject private var store = SettingsStore.shared
     @ObservedObject private var inactivity = InactivityTimerManager.shared
+    @ObservedObject private var locationManager = LocationManager.shared
     @Environment(\.dismiss) var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var showPicker = false
     @State private var showChangeMain = false
     @State private var showChangeVault = false
@@ -144,6 +147,32 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("settings.restrictedPlaces")
                     Text("Детские и спортивные объекты — 65 м, госструктуры — 100 м. Типы мест, расстояния и точность GPS настраиваются отдельно.")
                         .font(.caption).foregroundColor(.secondary)
+                }
+
+                Section("GPS без ожидания") {
+                    Toggle("Поддерживать GPS активным", isOn: $store.continuousGPSEnabled)
+                        .tint(.orange).accessibilityIdentifier("settings.continuousGPS")
+                    Text("Для более быстрого получения точных координат при открытии камеры. GPS продолжает обновляться в калькуляторе и, с разрешением iOS «Всегда», в фоне.")
+                        .font(.caption).foregroundColor(.secondary)
+                    Text("Режим не открывает хранилище и не отключает PIN, шифрование или автоблокировку. История перемещений не записывается.")
+                        .font(.caption).foregroundColor(.secondary)
+                    if store.continuousGPSEnabled {
+                        if locationManager.authorizationStatus == .authorizedAlways {
+                            Label("Геопозиция в фоне разрешена", systemImage: "checkmark.circle.fill")
+                                .font(.caption).foregroundColor(.green)
+                        } else {
+                            Button("Разрешить геопозицию «Всегда»") {
+                                locationManager.requestContinuousAuthorization()
+                            }.foregroundColor(.orange)
+                            Text("В настройках iOS выберите «Всегда» и включите «Точная геопозиция». При разрешении «При использовании» GPS поддерживается только в открытом приложении.")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        Button("Открыть настройки геопозиции iOS") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                        }.foregroundColor(.orange)
+                        Text("Постоянный GPS расходует больше заряда; iOS может показывать индикатор геолокации. После принудительного закрытия приложения обновления прекращаются. Свежесть и точность координат проверяются перед съёмкой как обычно.")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
                 }
 
                 Section("Точность GPS") {

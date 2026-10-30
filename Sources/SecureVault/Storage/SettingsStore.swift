@@ -104,6 +104,10 @@ class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(accuracyProtectionEnabled, forKey: "accuracyProtectionEnabled") }
     }
 
+    @Published var continuousGPSEnabled: Bool = UserDefaults.standard.object(forKey: "continuousGPSEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(continuousGPSEnabled, forKey: "continuousGPSEnabled") }
+    }
+
     @Published var accuracyThreshold: Int {
         didSet { UserDefaults.standard.set(accuracyThreshold, forKey: "accuracyThreshold") }
     }
@@ -259,6 +263,7 @@ class SettingsStore: ObservableObject {
         showCrosshair = false; crosshairColor = "white"; crosshairOnPhoto = false
         autoLockTimeout = 0; lockOnBackground = true
         accuracyProtectionEnabled = false; accuracyThreshold = 20
+        continuousGPSEnabled = true
         distanceTrackingEnabled = false; minDistanceThreshold = 10
         volumeButtonCaptureEnabled = false; exportAsZip = true; clusterMapPins = true
         failedPasswordWipeLimit = 0

@@ -530,8 +530,9 @@ final class OfflineMapManager: ObservableObject {
         return result
     }
 
-    private static func placeQuery(for bounds: OfflineRegionBounds) -> String {
+    static func placeQuery(for bounds: OfflineRegionBounds) -> String {
         let filters = ["[amenity~\"^(school|kindergarten|police|courthouse|townhall)$\"]", "[building~\"^(school|kindergarten)$\"]",
+                       "[education~\"^(school|kindergarten)$\"]",
                        "[leisure~\"^(playground|pitch|sports_centre|stadium|fitness_station|track)$\"]", "[playground]",
                        "[\"name\"]", "[\"name:ru\"]", "[\"operator\"]", "[\"operator:ru\"]", "[\"official_name\"]",
                        "[office=government]", "[government]", "[police]", "[landuse=military]", "[military]"]
