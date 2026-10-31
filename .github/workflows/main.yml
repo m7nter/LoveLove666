@@ -257,7 +257,7 @@ jobs:
           test -d "$APP_PATH"
           EXECUTABLE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")
           test -s "$APP_PATH/$EXECUTABLE_NAME"
-          xcrun lipo -verify_arch arm64 "$APP_PATH/$EXECUTABLE_NAME"
+          xcrun lipo "$APP_PATH/$EXECUTABLE_NAME" -verify_arch arm64
           echo "Found app at: $APP_PATH"
           mkdir -p "$GITHUB_WORKSPACE/ipa_output/Payload"
           cp -r "$APP_PATH" "$GITHUB_WORKSPACE/ipa_output/Payload/"
