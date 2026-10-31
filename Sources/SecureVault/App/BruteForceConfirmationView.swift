@@ -31,9 +31,11 @@ struct BruteForceConfirmationView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
                     .disabled(remaining > 0)
+                    .accessibilityIdentifier("security.bruteForce.confirm")
                     Button("Отмена") { dismiss() }
                         .frame(maxWidth: .infinity)
                         .buttonStyle(.bordered)
+                        .accessibilityIdentifier("security.bruteForce.cancel")
                 }
                 .padding(22)
             }

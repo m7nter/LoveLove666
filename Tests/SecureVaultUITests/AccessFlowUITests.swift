@@ -147,17 +147,11 @@ final class AccessFlowUITests: XCTestCase {
         XCTAssertTrue(gallery.waitForExistence(timeout: 10)); gallery.tap()
         let settings = app.buttons["gallery.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10)); settings.tap()
+        let appearance = app.buttons["settings.category.appearance"]
+        for _ in 0..<4 { if appearance.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(appearance.isHittable); appearance.tap()
         let choosePhoto = app.buttons["Выбрать фото"]
-        // Settings uses a virtualised List. Full-screen swipes can skip the
-        // entire avatar row and reach the bottom before AX instantiates it.
-        // Stop on the real row control, then check the image and its model-
-        // dependent delete action; do not mistake an offscreen row for loss.
-        for _ in 0..<16 {
-            if choosePhoto.isHittable { break }
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.78))
-            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.54))
-            start.press(forDuration: 0.05, thenDragTo: end)
-        }
+        XCTAssertTrue(choosePhoto.waitForExistence(timeout: 10))
         XCTAssertTrue(choosePhoto.isHittable)
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Footer-avatar-after-unlock"; screenshot.lifetime = .keepAlways

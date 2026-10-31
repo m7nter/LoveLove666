@@ -422,6 +422,11 @@ struct RootView: View {
             SettingsStore.shared.actionButtonMode = .disable
             try KeychainCodeStore.writeActionToken("ui-test-permanent-disable")
         }
+        if ProcessInfo.processInfo.arguments.contains("--test-settings") {
+            InactivityTimerManager.shared.disable()
+            SettingsStore.shared.failedPasswordWipeLimit = 0
+            SettingsStore.shared.resetPasswordFailureState()
+        }
         CryptoManager.lockVault()
     }
     #endif

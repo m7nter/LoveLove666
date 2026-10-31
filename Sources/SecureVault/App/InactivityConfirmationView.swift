@@ -40,9 +40,11 @@ struct InactivityConfirmationView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
                     .disabled(remaining > 0)
+                    .accessibilityIdentifier("security.inactivity.confirm")
                     Button("Отмена") { dismiss() }
                         .frame(maxWidth: .infinity)
                         .buttonStyle(.bordered)
+                        .accessibilityIdentifier("security.inactivity.cancel")
                 }
                 .padding(22)
             }

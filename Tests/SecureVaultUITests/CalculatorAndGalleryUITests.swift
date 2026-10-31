@@ -109,6 +109,8 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Папки"].waitForExistence(timeout: 10)); app.buttons["Папки"].tap()
         let settings = app.buttons["gallery.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10)); settings.tap()
+        XCTAssertTrue(app.buttons["settings.category.location"].waitForExistence(timeout: 10))
+        app.buttons["settings.category.location"].tap()
         let territories = app.buttons["settings.restrictedPlaces"]
         for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(territories.isHittable); territories.tap()
@@ -131,6 +133,8 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         for key in ["1", "3", "5", "7", "="] { app.buttons["calculator.key." + key].tap() }
         XCTAssertTrue(app.buttons["Папки"].waitForExistence(timeout: 10)); app.buttons["Папки"].tap()
         XCTAssertTrue(app.buttons["gallery.settings"].waitForExistence(timeout: 10)); app.buttons["gallery.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.category.location"].waitForExistence(timeout: 10))
+        app.buttons["settings.category.location"].tap()
         let territories = app.buttons["settings.restrictedPlaces"]
         for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(territories.isHittable); territories.tap()
