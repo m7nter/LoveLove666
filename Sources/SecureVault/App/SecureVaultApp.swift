@@ -488,6 +488,16 @@ struct RootView: View {
                     index: index, eventNumber: 1, generation: VaultGate.shared.generation)
                 precondition(storage.save(image: image, context: context) != nil, "UI test photo could not be saved")
             }
+            // A separate single-frame event makes selection/deletion tests
+            // prove that neighbouring events are neither merged nor removed.
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400), format: format).image { _ in
+                UIColor.darkGray.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 300, height: 400))
+                UIColor.systemTeal.setFill(); UIRectFill(CGRect(x: 10, y: 10, width: 280, height: 380))
+            }
+            let context = CaptureContext(eventID: UUID(uuidString: "22345678-1234-1234-1234-123456789012")!,
+                folder: "0.5", expectedCount: 1, index: 1, eventNumber: 2, generation: VaultGate.shared.generation)
+            precondition(storage.save(image: image, context: context) != nil, "UI test neighbouring event could not be saved")
         }
         #endif
         needsSetup = false; showAccess = false

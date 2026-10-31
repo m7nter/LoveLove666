@@ -52,6 +52,7 @@ struct PhotoDetailView: View {
                         .padding(.vertical, 8)
                         .background(Color.black.opacity(0.5))
                         .cornerRadius(8)
+                        .accessibilityIdentifier("photo.detail.close")
                     Spacer()
                     if urls.count > 1 {
                         Text("\(currentIndex + 1) из \(urls.count)")
@@ -61,6 +62,7 @@ struct PhotoDetailView: View {
                             .padding(.vertical, 4)
                             .background(Color.black.opacity(0.5))
                             .cornerRadius(8)
+                            .accessibilityIdentifier("photo.detail.position")
                     }
                     Spacer()
                     HStack(spacing: 12) {
@@ -83,6 +85,7 @@ struct PhotoDetailView: View {
                                 .clipShape(Circle())
                         }
                         .disabled(loadingEditor)
+                        .accessibilityLabel("Редактировать фото").accessibilityIdentifier("photo.detail.edit")
                         .alert("Не удалось открыть фото", isPresented: $editorLoadError) {
                             Button("Закрыть", role: .cancel) {}
                         }
@@ -95,6 +98,7 @@ struct PhotoDetailView: View {
                                 .background(Color.black.opacity(0.5))
                                 .clipShape(Circle())
                         }
+                        .accessibilityLabel("Удалить фото").accessibilityIdentifier("photo.detail.delete")
                     }
                 }
                 .padding(.horizontal, 16)
@@ -174,7 +178,7 @@ struct PhotoDetailView: View {
     }
 }
 
-private struct PhotoPageView: View {
+struct PhotoPageView: View {
     let url: URL
     let refreshToken: UUID
     @State private var image: UIImage?

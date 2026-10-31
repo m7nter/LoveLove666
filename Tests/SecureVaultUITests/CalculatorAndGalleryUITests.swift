@@ -45,7 +45,46 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         let photos = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'event.photo.'"))
         XCTAssertTrue(photos.firstMatch.waitForExistence(timeout: 10))
         XCTAssertEqual(photos.count, 2)
+        assertPosition(app, "1 из 2")
         keepScreenshot("Event-gallery")
+        let second = photos.element(boundBy: 1)
+        let secondFilename = String(second.identifier.dropFirst("event.photo.".count))
+        second.tap()
+        assertPosition(app, "2 из 2")
+        let secondPage = app.buttons["event.open." + secondFilename]
+        XCTAssertTrue(secondPage.isHittable)
+        secondPage.swipeRight()
+        assertPosition(app, "1 из 2")
+        second.tap()
+        assertPosition(app, "2 из 2")
+        app.buttons["event.openCurrent"].tap()
+        let detailPosition = app.staticTexts["photo.detail.position"]
+        XCTAssertTrue(detailPosition.waitForExistence(timeout: 10))
+        XCTAssertEqual(detailPosition.label, "2 из 2")
+        XCTAssertTrue(app.buttons["photo.detail.edit"].exists)
+        app.buttons["photo.detail.close"].tap()
+        assertPosition(app, "2 из 2")
+    }
+    func testSelectingEventDeletesAllItsFramesAndKeepsNeighbour() {
+        let app = launch(["--test-gallery"])
+        for key in ["1", "3", "5", "7", "="] { app.buttons["calculator.key." + key].tap() }
+        XCTAssertTrue(app.buttons["Папки"].waitForExistence(timeout: 10)); app.buttons["Папки"].tap()
+        let folder = app.buttons.containing(NSPredicate(format: "label BEGINSWITH '0.5'")).firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10)); folder.tap()
+        let event = app.buttons["gallery.event.12345678-1234-1234-1234-123456789012"]
+        XCTAssertTrue(event.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["gallery.folderTitle"].label, "0.5")
+        app.buttons["gallery.select"].tap()
+        event.tap()
+        XCTAssertEqual(app.staticTexts["gallery.selectionSummary"].label, "Выбрано: 1 событие · 2 фото")
+        keepScreenshot("Event-selection")
+        app.buttons["gallery.deleteSelected"].tap()
+        XCTAssertTrue(app.alerts["Удалить 1 событие?"].waitForExistence(timeout: 5))
+        app.alerts.buttons["Удалить"].tap()
+        let deleted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: event)
+        XCTAssertEqual(XCTWaiter.wait(for: [deleted], timeout: 10), .completed)
+        XCTAssertTrue(app.buttons["gallery.event.22345678-1234-1234-1234-123456789012"].exists)
+        XCTAssertEqual(app.staticTexts["gallery.summary"].label, "1 событие · 1 фото")
     }
     func testPressedButtonVisualFeedback() {
         let app = launch()
@@ -110,6 +149,11 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         let app = XCUIApplication(); app.launchArguments = ["--test-calculator"] + extra; app.launch()
         XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 10))
         return app
+    }
+    private func assertPosition(_ app: XCUIApplication, _ expected: String) {
+        let position = app.staticTexts["event.position"]
+        let matching = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected), object: position)
+        XCTAssertEqual(XCTWaiter.wait(for: [matching], timeout: 5), .completed)
     }
     private func keepScreenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

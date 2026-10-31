@@ -13,6 +13,7 @@ struct GalleryView: View {
     @State private var sharingText = ""
     @State private var eventPath: [String] = []
     @State private var isExporting = false
+    @State private var isLoading = true
     @State private var isSelecting = false
     @State private var selectedURLs: Set<URL> = []
     @State private var showDeleteConfirm = false
@@ -22,226 +23,247 @@ struct GalleryView: View {
     @ObservedObject private var settings = SettingsStore.shared
     private let accessGeneration = VaultGate.shared.generation
     init() {}
-    private let columns = [GridItem(.adaptive(minimum: 145), spacing: 12)]
+    private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
     private var days: [GalleryDayGroup] { GalleryGrouping.days(groupedPhotos) }
-    private func dayTitle(_ date: Date) -> String {
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "d MMMM yyyy"; return formatter.string(from: date)
-    }
-
-    private var totalCount: Int {
-        groupedPhotos.reduce(0) { $0 + $1.urls.count }
+    private var totalCount: Int { groupedPhotos.reduce(0) { $0 + $1.urls.count } }
+    private var selectedEventCount: Int {
+        groupedPhotos.filter { group in group.urls.contains { selectedURLs.contains($0) } }.count
     }
 
     var body: some View {
         NavigationStack(path: $eventPath) {
-            ZStack(alignment: .bottom) {
-                if currentFolder == nil {
-                    List {
-                        ForEach(folders, id: \.0) { folder, count in
-                            Button {
-                                currentFolder = folder; reload()
-                            } label: {
-                                HStack {
-                                    Image(systemName: "folder.fill").foregroundColor(.orange)
-                                    Text(folder)
-                                    Spacer()
-                                    Text("\(count) фото").foregroundColor(.secondary)
-                                    Image(systemName: "chevron.right").foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    }
-                } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                        ForEach(days) { section in
-                            let day = dayTitle(section.date)
-                            let urls = section.urls
-                            Section {
-                                LazyVGrid(columns: columns, spacing: 12) {
-                                    ForEach(section.events) { group in
-                                        if let url = group.urls.first {
-                                        ThumbnailCell(
-                                            url: url,
-                                            title: group.title,
-                                            photoCount: group.urls.count,
-                                            isSelecting: isSelecting,
-                                            isSelected: selectedURLs.contains(url)
-                                        )
-                                        .onTapGesture {
-                                            if isSelecting {
-                                                toggleSelection(url)
-                                            } else {
-                                                eventPath.append(group.id)
-                                            }
-                                        }
-                                        .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
-                                        .accessibilityIdentifier("gallery.event." + group.id)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 12).padding(.bottom, 12)
-                            } header: {
-                                HStack {
-                                    Text("\(day) · \(section.events.count) событий · \(urls.count) фото")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundColor(.white)
-                                    Spacer()
-                                    if !isSelecting {
-                                        Button {
-                                            shareDay(day: day, urls: urls)
-                                        } label: {
-                                            if isExporting {
-                                                ProgressView()
-                                                    .tint(.orange)
-                                            } else {
-                                                Image(systemName: "square.and.arrow.up")
-                                                    .foregroundColor(.orange)
-                                                    .font(.system(size: 16))
-                                            }
-                                        }
-                                        .disabled(isExporting)
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.black.opacity(0.85))
-                            }
-                        }
-                    }
-                    .padding(.bottom, isSelecting ? 70 : 0)
-                }
-                .background(Color.black)
-                }
-
-                if isSelecting {
-                    HStack(spacing: 24) {
-                        Button {
-                            showDeleteConfirm = true
-                        } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: "trash")
-                                Text("Удалить")
-                                    .font(.caption)
-                            }
-                        }
-                        .foregroundColor(selectedURLs.isEmpty ? .gray : .red)
-                        .disabled(selectedURLs.isEmpty)
-
-                        Spacer()
-
-                        Menu {
-                            ForEach(["Без режима"] + settings.workModes.filter {
-                                $0 != "Без режима" && $0.caseInsensitiveCompare("VaultPhotos") != .orderedSame
-                            }, id: \.self) { folder in
-                                Button(folder) {
-                                    do {
-                                        try FileStorageManager.shared.moveEvents(containing: Array(selectedURLs), to: folder)
-                                        exitSelection(); reload()
-                                    } catch { operationError = "Не удалось переместить событие: \(error.localizedDescription)" }
-                                }
-                            }
-                        } label: { Image(systemName: "folder.badge.arrow.forward") }
-                        .disabled(selectedURLs.isEmpty)
-
-                        Text("\(selectedURLs.count) выбрано")
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-
-                        Spacer()
-
-                        Button {
-                            shareSelected()
-                        } label: {
-                            if isExporting {
-                                ProgressView().tint(.orange)
-                            } else {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "square.and.arrow.up")
-                                    Text("Поделиться")
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                        .foregroundColor(selectedURLs.isEmpty ? .gray : .orange)
-                        .disabled(selectedURLs.isEmpty || isExporting)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(Color.black.opacity(0.95))
-                }
+            Group {
+                if currentFolder == nil { folderList }
+                else { eventList }
             }
-            .navigationTitle(currentFolder.map { "\($0) (\(totalCount))" } ?? "Хранилище папок")
+            .background(Color.black)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: String.self) { id in
                 EventGalleryView(eventID: id, groups: groupedPhotos, photoTitles: photoTitles,
                     isExporting: isExporting, onShare: { shareDay(day: $0.title, urls: $0.urls) }, onDelete: delete)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if isSelecting {
-                        Button("Отмена") { exitSelection() }
-                            .foregroundColor(.orange)
-                    } else {
-                        Button(currentFolder == nil ? "Закрыть" : "Папки") {
-                            if currentFolder == nil { dismiss() }
-                            else { currentFolder = nil; reload() }
-                        }
-                            .foregroundColor(.orange)
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        Button {
-                            if isSelecting {
-                                exitSelection()
-                            } else {
-                                isSelecting = true
-                            }
-                        } label: {
-                            Text(isSelecting ? "Готово" : "Выбрать")
-                                .foregroundColor(.orange)
-                        }
-                        .disabled(currentFolder == nil)
-                        if !isSelecting {
-                            Button {
-                                showSettings = true
-                            } label: {
-                                Image(systemName: "gear")
-                                    .foregroundColor(.orange)
-                            }
-                            .accessibilityIdentifier("gallery.settings")
-                        }
-                    }
-                }
+            .toolbar { galleryToolbar }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isSelecting { selectionBar }
             }
         }
+        .preferredColorScheme(.dark).tint(.orange)
         .onAppear { reload() }
         .onDisappear { reloadID = UUID() }
-        .sheet(isPresented: $showSettings, onDismiss: { reload() }) {
-            SettingsView()
-        }
+        .sheet(isPresented: $showSettings, onDismiss: { reload() }) { SettingsView() }
         .sheet(isPresented: $showShareSheet, onDismiss: {
-            sharingItems = []
-            sharingText = ""
+            sharingItems = []; sharingText = ""
             PhotoExporter.cleanupTemporaryExports()
         }) {
             if sharingText.isEmpty { ShareSheet(items: sharingItems) }
             else { CoordinateSharePreview(items: sharingItems, text: sharingText) }
         }
-        .alert(
-            "Удалить \(selectedURLs.count) фото?",
-            isPresented: $showDeleteConfirm
-        ) {
+        .alert("Удалить \(GalleryPresentation.eventCount(selectedEventCount))?", isPresented: $showDeleteConfirm) {
             Button("Удалить", role: .destructive) { deleteSelected() }
             Button("Отмена", role: .cancel) {}
         } message: {
-            Text("Это действие нельзя отменить.")
+            Text("Будут удалены \(selectedURLs.count) фото. Это действие нельзя отменить.")
         }
         .alert("Ошибка", isPresented: Binding(get: { operationError != nil }, set: { if !$0 { operationError = nil } })) {
             Button("Закрыть") { operationError = nil }
         } message: { Text(operationError ?? "") }
+    }
+
+    private var folderList: some View {
+        List {
+            Section {
+                ForEach(folders, id: \.0) { folder, count in
+                    Button {
+                        currentFolder = folder; groupedPhotos = []; reload()
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "folder.fill").font(.title3).foregroundColor(.orange)
+                                .frame(width: 44, height: 44)
+                                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(folder).font(.body.weight(.medium)).foregroundStyle(.white)
+                                Text("\(count) фото").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }.padding(.vertical, 3)
+                    }
+                    .accessibilityLabel("\(folder), \(count) фото")
+                }
+            } header: {
+                Text("Папки").font(.largeTitle.weight(.bold)).foregroundStyle(.white).textCase(nil)
+                    .padding(.bottom, 12)
+            }
+        }
+        .listStyle(.insetGrouped).scrollContentBackground(.hidden)
+    }
+
+    private var eventList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(currentFolder ?? "").font(.largeTitle.weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("gallery.folderTitle")
+                    Text(GalleryPresentation.summary(events: groupedPhotos.count, photos: totalCount))
+                        .font(.subheadline).foregroundStyle(.secondary).accessibilityIdentifier("gallery.summary")
+                }
+                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 28)
+                if groupedPhotos.isEmpty {
+                    emptyFolder
+                } else {
+                    ForEach(days) { section in
+                        Section {
+                            eventGrid(section)
+                        } header: {
+                            dayHeader(section)
+                        }
+                    }
+                }
+            }
+            .padding(.bottom, 20)
+        }
+    }
+
+    private var emptyFolder: some View {
+        VStack(spacing: 12) {
+            if isLoading {
+                ProgressView("Загрузка событий…").tint(.orange)
+            } else {
+                Image(systemName: "photo.on.rectangle.angled").font(.system(size: 38, weight: .light)).foregroundStyle(.secondary)
+                Text("Здесь появятся события").font(.headline)
+                Text("Снимки одного события будут собраны под общей обложкой.")
+                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.horizontal, 32).padding(.vertical, 70)
+    }
+
+    private func eventGrid(_ section: GalleryDayGroup) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+            ForEach(section.events) { group in
+                if let url = group.urls.first {
+                    Button {
+                        if isSelecting { toggleSelection(url) }
+                        else { eventPath.append(group.id) }
+                    } label: {
+                        GalleryEventCard(url: url, title: group.title, date: group.date,
+                            photoCount: group.urls.count, isSelecting: isSelecting, isSelected: selectedURLs.contains(url))
+                    }
+                    .buttonStyle(GalleryCardButtonStyle())
+                    .accessibilityLabel("\(group.title), \(group.urls.count) фото, \(GalleryPresentation.time(group.date))")
+                    .accessibilityValue(isSelecting ? (selectedURLs.contains(url) ? "Выбрано" : "Не выбрано") : "")
+                    .accessibilityIdentifier("gallery.event." + group.id)
+                    .contextMenu {
+                        if !isSelecting {
+                            Button { isSelecting = true; toggleSelection(url) } label: {
+                                Label("Выбрать событие", systemImage: "checkmark.circle")
+                            }
+                            Button { shareDay(day: group.title, urls: group.urls) } label: {
+                                Label("Выгрузить событие", systemImage: "square.and.arrow.up")
+                            }.disabled(isExporting)
+                            Button(role: .destructive) {
+                                selectedURLs = Set(group.urls); isSelecting = true; showDeleteConfirm = true
+                            } label: { Label("Удалить событие", systemImage: "trash") }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.bottom, 22)
+    }
+
+    private func dayHeader(_ section: GalleryDayGroup) -> some View {
+        let relative = Calendar.current.isDateInToday(section.date) || Calendar.current.isDateInYesterday(section.date)
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(GalleryPresentation.date(section.date, relative: true)).font(.title3.weight(.semibold))
+                Text(relative
+                    ? "\(GalleryPresentation.date(section.date)) · \(GalleryPresentation.eventCount(section.events.count))"
+                    : GalleryPresentation.summary(events: section.events.count, photos: section.urls.count))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if !isSelecting {
+                Button { shareDay(day: GalleryPresentation.date(section.date), urls: section.urls) } label: {
+                    Group {
+                        if isExporting { ProgressView().tint(.orange) }
+                        else { Image(systemName: "square.and.arrow.up").font(.body.weight(.medium)) }
+                    }
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.065), in: Circle())
+                }
+                .disabled(isExporting)
+                .accessibilityLabel("Выгрузить события за \(GalleryPresentation.date(section.date))")
+                .accessibilityIdentifier("gallery.shareDay." + section.id)
+            }
+        }
+        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
+        .background(.black.opacity(0.96))
+    }
+
+    @ToolbarContentBuilder
+    private var galleryToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            if isSelecting {
+                Button("Отмена") { exitSelection() }
+            } else {
+                Button(currentFolder == nil ? "Закрыть" : "Папки") {
+                    if currentFolder == nil { dismiss() }
+                    else { currentFolder = nil; reload() }
+                }
+            }
+        }
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button(isSelecting ? "Готово" : "Выбрать") {
+                if isSelecting { exitSelection() } else { isSelecting = true }
+            }.disabled(currentFolder == nil).accessibilityIdentifier("gallery.select")
+        }
+        if !isSelecting {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                    .accessibilityLabel("Настройки").accessibilityIdentifier("gallery.settings")
+            }
+        }
+    }
+
+    private var selectionBar: some View {
+        VStack(spacing: 12) {
+            Text(selectedURLs.isEmpty ? "Выберите события" : "Выбрано: \(GalleryPresentation.summary(events: selectedEventCount, photos: selectedURLs.count))")
+                .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("gallery.selectionSummary")
+            HStack {
+                Button { showDeleteConfirm = true } label: { selectionLabel("Удалить", icon: "trash") }
+                    .foregroundStyle(selectedURLs.isEmpty ? Color.gray : .red)
+                    .disabled(selectedURLs.isEmpty).accessibilityIdentifier("gallery.deleteSelected")
+                Menu {
+                    ForEach(["Без режима"] + settings.workModes.filter {
+                        $0 != "Без режима" && $0.caseInsensitiveCompare("VaultPhotos") != .orderedSame
+                    }, id: \.self) { folder in
+                        Button(folder) {
+                            do {
+                                try FileStorageManager.shared.moveEvents(containing: Array(selectedURLs), to: folder)
+                                exitSelection(); reload()
+                            } catch { operationError = "Не удалось переместить событие: \(error.localizedDescription)" }
+                        }
+                    }
+                } label: { selectionLabel("Переместить", icon: "folder.badge.arrow.forward") }
+                    .disabled(selectedURLs.isEmpty).accessibilityIdentifier("gallery.moveSelected")
+                Button { shareSelected() } label: {
+                    if isExporting { ProgressView().frame(maxWidth: .infinity) }
+                    else { selectionLabel("Выгрузить", icon: "square.and.arrow.up") }
+                }
+                .disabled(selectedURLs.isEmpty || isExporting).accessibilityIdentifier("gallery.shareSelected")
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    private func selectionLabel(_ title: String, icon: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.title3)
+            Text(title).font(.caption)
+        }.frame(maxWidth: .infinity, minHeight: 44)
     }
 
     private func toggleSelection(_ url: URL) {
@@ -328,6 +350,7 @@ struct GalleryView: View {
     private func reload() {
         let requestID = UUID()
         reloadID = requestID
+        isLoading = true
         let folder = currentFolder
         let modes = settings.workModes.filter { $0.caseInsensitiveCompare("VaultPhotos") != .orderedSame }
         let numberingMode = settings.numberingMode
@@ -360,6 +383,7 @@ struct GalleryView: View {
                 self.photoTitles = titles
                 self.eventKeys = keys
                 self.photoDates = dates
+                self.isLoading = false
             }
         }
     }
@@ -381,77 +405,3 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 extension URL: Identifiable { public var id: String { absoluteString } }
-
-struct ThumbnailCell: View {
-    let url: URL
-    let title: String
-    var photoCount: Int = 1
-    var isSelecting: Bool = false
-    var isSelected: Bool = false
-    @State private var image: UIImage?
-    @State private var loadTicket = UUID()
-    @State private var loadOperation: BlockOperation?
-    private let accessGeneration = VaultGate.shared.generation
-    private static let queue: OperationQueue = {
-        let queue = OperationQueue()
-        queue.name = "SecureVault.thumbnails"
-        queue.qualityOfService = .userInitiated
-        queue.maxConcurrentOperationCount = 2
-        return queue
-    }()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-        ZStack(alignment: .topTrailing) {
-            if let image = image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-                    .opacity(isSelecting && !isSelected ? 0.55 : 1.0)
-            } else {
-                Color.gray.opacity(0.15)
-                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
-            }
-            if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundColor(isSelected ? .orange : .white)
-                    .background(Circle().fill(Color.black.opacity(0.5)).frame(width: 22, height: 22))
-                    .padding(6)
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if photoCount > 1 {
-                Label("\(photoCount)", systemImage: "photo.on.rectangle")
-                    .font(.caption.bold()).padding(6).background(.black.opacity(0.7), in: Capsule()).padding(6)
-            }
-        }
-        Text(title)
-            .font(.caption2).foregroundColor(.white).lineLimit(3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .onAppear {
-            guard image == nil else { return }
-            let ticket = UUID()
-            loadTicket = ticket
-            let url = self.url
-            let generation = accessGeneration
-            loadOperation?.cancel()
-            let operation = BlockOperation()
-            operation.addExecutionBlock { [weak operation] in
-                guard operation?.isCancelled == false else { return }
-                let thumbnail = FileStorageManager.shared.loadThumbnail(at: url, generation: generation)
-                guard operation?.isCancelled == false else { return }
-                DispatchQueue.main.async {
-                    guard self.loadTicket == ticket, VaultGate.shared.generation == generation else { return }
-                    self.image = thumbnail
-                    self.loadOperation = nil
-                }
-            }
-            loadOperation = operation
-            Self.queue.addOperation(operation)
-        }
-        .onDisappear { loadOperation?.cancel(); loadOperation = nil; loadTicket = UUID(); image = nil }
-    }
-}
