@@ -12,10 +12,17 @@ enum RestrictedPlacesRadarPolicy {
               !(settings.blockOnEmptyOnlineResponse && snapshot.isEmptyOnlineResponse) else { return nil }
         let radius = max(1_000, settings.maximumRadius + location.horizontalAccuracy)
         let candidates = snapshot.index?.near(location, radius: radius) ?? snapshot.places
-        return candidates.filter { settings.includes($0.kind) }
-            .map { ($0, $0.distance(from: location)) }
-            .filter { $0.1.isFinite && $0.1 <= radius }
-            .sorted { $0.1 == $1.1 ? $0.0.id < $1.0.id : $0.1 < $1.1 }
-            .map { $0.0 }
+        var nearby: [(place: RestrictedPlace, distance: Double)] = []
+        for place in candidates where settings.includes(place.kind) {
+            let distance = place.distance(from: location)
+            if distance.isFinite && distance <= radius {
+                nearby.append((place: place, distance: distance))
+            }
+        }
+        nearby.sort { left, right in
+            if left.distance == right.distance { return left.place.id < right.place.id }
+            return left.distance < right.distance
+        }
+        return nearby.map { $0.place }
     }
 }
