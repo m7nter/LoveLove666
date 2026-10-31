@@ -4,6 +4,7 @@ struct PhotoDetailView: View {
     let urls: [URL]
     let initialIndex: Int
     let onDelete: (URL) -> Void
+    let onSelectionChange: ((URL) -> Void)?
 
     @Environment(\.dismiss) var dismiss
     @State private var currentIndex: Int
@@ -17,10 +18,11 @@ struct PhotoDetailView: View {
     @State private var refreshToken = UUID()
     private let accessGeneration = VaultGate.shared.generation
 
-    init(urls: [URL], initialIndex: Int, onDelete: @escaping (URL) -> Void) {
+    init(urls: [URL], initialIndex: Int, onSelectionChange: ((URL) -> Void)? = nil, onDelete: @escaping (URL) -> Void) {
         self.urls = urls
         self.initialIndex = initialIndex
         self.onDelete = onDelete
+        self.onSelectionChange = onSelectionChange
         self._currentIndex = State(initialValue: initialIndex)
     }
 
@@ -160,6 +162,9 @@ struct PhotoDetailView: View {
             Text("Это действие нельзя отменить.")
         }
         .onChange(of: urls) { if $0.isEmpty { dismiss() } }
+        .onChange(of: currentIndex) { _ in
+            if let currentURL { onSelectionChange?(currentURL) }
+        }
     }
 
     private func openEditor() {

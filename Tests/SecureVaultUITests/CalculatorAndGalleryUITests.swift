@@ -62,8 +62,11 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(detailPosition.waitForExistence(timeout: 10))
         XCTAssertEqual(detailPosition.label, "2 из 2")
         XCTAssertTrue(app.buttons["photo.detail.edit"].exists)
+        app.swipeRight()
+        let fullScreenPage = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "1 из 2"), object: detailPosition)
+        XCTAssertEqual(XCTWaiter.wait(for: [fullScreenPage], timeout: 5), .completed)
         app.buttons["photo.detail.close"].tap()
-        assertPosition(app, "2 из 2")
+        assertPosition(app, "1 из 2")
     }
     func testSelectingEventDeletesAllItsFramesAndKeepsNeighbour() {
         let app = launch(["--test-gallery"])

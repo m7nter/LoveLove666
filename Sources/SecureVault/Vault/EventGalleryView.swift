@@ -39,7 +39,8 @@ struct EventGalleryView: View {
             .onAppear { alignSelection() }
             .onChange(of: urls) { _ in alignSelection() }
             .sheet(item: $selectedURL, onDismiss: { revision = UUID() }) { url in
-                PhotoDetailView(urls: urls, initialIndex: urls.firstIndex(of: url) ?? 0, onDelete: onDelete)
+                PhotoDetailView(urls: urls, initialIndex: urls.firstIndex(of: url) ?? 0,
+                    onSelectionChange: { currentPhotoURL = $0 }, onDelete: onDelete)
             }
     }
 
