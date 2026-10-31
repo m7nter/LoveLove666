@@ -4,7 +4,9 @@ final class AccessFlowUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         addUIInterruptionMonitor(withDescription: "System permission") { alert in
-            alert.buttons.element(boundBy: 0).tap()
+            let whileUsing = alert.buttons["Allow While Using App"]
+            if whileUsing.exists { whileUsing.tap() }
+            else { alert.buttons.element(boundBy: 0).tap() }
             return true
         }
     }
@@ -71,6 +73,9 @@ final class AccessFlowUITests: XCTestCase {
     }
 
     func testFooterAvatarSurvivesPINMigrationAndProcessTermination() {
+        // This scenario intentionally launches two real app processes. The
+        // first simulator automation handshake can consume 40+ seconds alone.
+        executionTimeAllowance = 180
         let app = XCUIApplication()
         app.launchArguments = ["--test-calculator", "--test-legacy-avatar"]
         app.launch()

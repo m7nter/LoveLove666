@@ -120,6 +120,7 @@ struct RestrictedPlacesRadarView: View {
                 .frame(width: 42, height: 42).background(Color(place.kind.radarColor).opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
             VStack(alignment: .leading, spacing: 4) {
                 Text(summary?.title ?? place.kind.singular).font(.subheadline.weight(.semibold)).lineLimit(2)
+                    .accessibilityIdentifier("radar.details")
                 Text("\(place.kind.singular) · запрет ближе \(Int(radius)) м").font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
@@ -127,7 +128,8 @@ struct RestrictedPlacesRadarView: View {
                 .foregroundStyle((distance ?? .infinity) < radius ? .red : .white).monospacedDigit()
                 .accessibilityIdentifier("radar.distance")
         }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18))
-            .padding(.horizontal, 20).padding(.top, 12).accessibilityIdentifier("radar.details")
+            .padding(.horizontal, 20).padding(.top, 12)
+            .accessibilityElement(children: .contain)
     }
 }
 
