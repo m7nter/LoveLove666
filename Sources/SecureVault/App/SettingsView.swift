@@ -666,7 +666,7 @@ struct SettingsView: View {
         Section("Карты без интернета") {
             NavigationLink(value: SettingsDestination.offlineMaps) {
                 Label("Офлайн-карты и зоны", systemImage: "arrow.down.circle")
-            }.accessibilityIdentifier("settings.offlineMaps")
+            }.accessibilityIdentifier("settings.location.offlineMaps")
             Text("Загрузка региона, состояние карты и базы запретных мест. Офлайн-проверка быстрее онлайн-запроса.")
                 .font(.caption).foregroundStyle(.secondary)
         }.id(SettingsItem.offlineMaps)

@@ -112,7 +112,7 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings.category.location"].waitForExistence(timeout: 10))
         app.buttons["settings.category.location"].tap()
         let territories = app.buttons["settings.restrictedPlaces"]
-        for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(territories.waitForExistence(timeout: 10))
         XCTAssertTrue(territories.isHittable); territories.tap()
         let enabled = app.switches["settings.restrictedPlaces.enabled"]
         XCTAssertTrue(enabled.waitForExistence(timeout: 5))
@@ -135,16 +135,23 @@ final class CalculatorAndGalleryUITests: XCTestCase {
         XCTAssertTrue(app.buttons["gallery.settings"].waitForExistence(timeout: 10)); app.buttons["gallery.settings"].tap()
         XCTAssertTrue(app.buttons["settings.category.location"].waitForExistence(timeout: 10))
         app.buttons["settings.category.location"].tap()
-        let territories = app.buttons["settings.restrictedPlaces"]
-        for _ in 0..<8 { if territories.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(territories.isHittable); territories.tap()
-        let offline = app.buttons["settings.offlineMaps"]
-        // The iOS 26 Form can place this section below the fold; keep
-        // scrolling until the link is actually hittable instead of relying on
-        // a fixed number of swipes.
-        for _ in 0..<12 { if offline.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(offline.isHittable); offline.tap()
+        // Both entry points must work. Open the new direct link first, then
+        // return and check the existing link inside the OSM settings.
+        let directOffline = app.buttons["settings.location.offlineMaps"]
+        XCTAssertTrue(directOffline.waitForExistence(timeout: 10)); directOffline.tap()
         let search = app.textFields["offline.regionSearch"]
+        XCTAssertTrue(app.navigationBars["Офлайн-карты"].waitForExistence(timeout: 10))
+        app.navigationBars["Офлайн-карты"].buttons.element(boundBy: 0).tap()
+        let territories = app.buttons["settings.restrictedPlaces"]
+        XCTAssertTrue(territories.waitForExistence(timeout: 10))
+        XCTAssertTrue(territories.isHittable); territories.tap()
+        XCTAssertTrue(app.switches["settings.restrictedPlaces.enabled"].waitForExistence(timeout: 10))
+        let offline = app.buttons["settings.offlineMaps"]
+        // The link is at the top. Waiting for the destination avoids swiping
+        // it off-screen while the navigation transition is still running.
+        XCTAssertTrue(offline.waitForExistence(timeout: 10))
+        XCTAssertTrue(offline.isHittable); offline.tap()
+        XCTAssertTrue(app.navigationBars["Офлайн-карты"].waitForExistence(timeout: 10))
         for _ in 0..<4 { if search.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(search.isHittable); search.tap(); search.typeText("RU-MOS")
         let region = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline.region.'")).firstMatch
