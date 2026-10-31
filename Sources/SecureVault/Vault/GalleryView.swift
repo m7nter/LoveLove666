@@ -246,7 +246,7 @@ struct GalleryView: View {
                             } catch { operationError = "Не удалось переместить событие: \(error.localizedDescription)" }
                         }
                     }
-                } label: { selectionLabel("Переместить", icon: "folder.badge.arrow.forward") }
+                } label: { selectionLabel("Переместить", icon: "folder") }
                     .disabled(selectedURLs.isEmpty).accessibilityIdentifier("gallery.moveSelected")
                 Button { shareSelected() } label: {
                     if isExporting { ProgressView().frame(maxWidth: .infinity) }
