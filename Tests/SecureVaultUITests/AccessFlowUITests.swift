@@ -11,6 +11,55 @@ final class AccessFlowUITests: XCTestCase {
         }
     }
 
+    func testActionButtonDisableKeepsOnlyCalculatorAfterRelaunch() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("XCUIApplication.open requires iOS 16.4") }
+        executionTimeAllowance = 180
+        let app = XCUIApplication()
+        defer {
+            // Restore a separate test installation; this fixture is absent
+            // from the distributed device build. Never pass it on the actual
+            // relaunch whose permanent lock is being verified below.
+            app.terminate()
+            app.launchArguments = ["--test-legacy-lock"]
+            app.launch()
+            XCTAssertTrue(app.secureTextFields["access.confirmation"].waitForExistence(timeout: 20))
+            app.terminate()
+        }
+        app.launchArguments = ["--test-calculator", "--test-action-button-disable"]
+        app.launch()
+        XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 15))
+
+        // Deliver the real URL through onOpenURL, rather than invoking the
+        // erase service or injecting an already-locked container.
+        app.open(try XCTUnwrap(URL(string: "securevault://action?token=ui-test-permanent-disable")))
+        XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 20))
+        for key in ["AC", "2", "+", "2", "="] {
+            app.buttons["calculator.key." + key].tap()
+        }
+        XCTAssertEqual(app.staticTexts["calculator.display"].label, "4")
+        XCTAssertFalse(app.secureTextFields["access.confirmation"].exists)
+        XCTAssertFalse(app.buttons["access.reset"].exists)
+
+        app.terminate()
+        app.launchArguments = []
+        app.launch()
+        XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 15))
+        for key in ["AC", "1", "3", "5", "7", "="] {
+            app.buttons["calculator.key." + key].tap()
+        }
+        XCTAssertTrue(app.buttons["calculator.menu"].exists)
+        XCTAssertFalse(app.secureTextFields["access.confirmation"].exists)
+        XCTAssertFalse(app.secureTextFields["access.code"].exists)
+        XCTAssertFalse(app.staticTexts["Хранилище"].exists)
+        XCTAssertFalse(app.buttons["access.reset"].exists)
+
+        // A previously configured camera link must not bypass the lock.
+        app.open(try XCTUnwrap(URL(string: "securevault://camera")))
+        XCTAssertTrue(app.buttons["calculator.menu"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Хранилище"].exists)
+        XCTAssertFalse(app.secureTextFields["access.confirmation"].exists)
+    }
+
     func testResetInstallAutomaticallyPromptsForPINAndPersistsIt() {
         let app = XCUIApplication()
         app.launchArguments = ["--test-legacy-lock"]

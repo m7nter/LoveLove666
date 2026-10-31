@@ -16,6 +16,9 @@ struct SecureVaultApp: App {
         // UI-test fixtures are excluded from the device IPA.
         if ProcessInfo.processInfo.arguments.contains("--test-legacy-lock") {
             let paths = VaultDirectories.application
+            // This fixture models a separate reset installation. It must not
+            // inherit a permanent lock left by a preceding destructive UI test.
+            try? FileManager.default.removeItem(at: paths.bruteForceLockMarker)
             try? FileManager.default.createDirectory(at: paths.support, withIntermediateDirectories: true)
             try? Data("disabled".utf8).write(to: paths.disabledMarker)
             UserDefaults.standard.set(true, forKey: "vaultDisabled")
@@ -415,6 +418,10 @@ struct RootView: View {
         }
         try KeychainCodeStore.write("1357", for: "mainCode")
         try CryptoManager.bindPIN("1357")
+        if ProcessInfo.processInfo.arguments.contains("--test-action-button-disable") {
+            SettingsStore.shared.actionButtonMode = .disable
+            try KeychainCodeStore.writeActionToken("ui-test-permanent-disable")
+        }
         CryptoManager.lockVault()
     }
     #endif

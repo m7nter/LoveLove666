@@ -79,18 +79,56 @@ final class ExportAndErasureTests: XCTestCase {
         XCTAssertNil(defaults.string(forKey: "mainCode"))
         XCTAssertEqual(keyDeletions, 1)
     }
-    func testDisableDeletesMaterialAndReturnsToFreshSetup() throws {
-        let erase = service()
+    func testDisableDeletesMaterialAndPermanentlyLocksEntry() throws {
+        var codesDeleted = 0
+        let erase = VaultEraseService(directories: paths, defaults: defaults, defaultsDomain: suite,
+            destroyKey: { self.keyDeletions += 1 }, destroyCodes: { codesDeleted += 1 })
         try erase.prepare(.disable, generation: 12)
         // The lock is recorded before any photo is deleted.
         XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.bruteForceLockMarker.path))
         try erase.erase(.disable, generation: 12)
-        XCTAssertFalse(defaults.bool(forKey: "vaultDisabled"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.bruteForceLockMarker.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: paths.pendingMarker.path))
+        XCTAssertNil(defaults.string(forKey: "pendingEraseMode"))
+        XCTAssertNil(defaults.string(forKey: "mainCode"))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: paths.documents.path), [])
         XCTAssertEqual(keyDeletions, 1)
+        XCTAssertEqual(codesDeleted, 1)
+    }
+    func testInterruptedDisableResumesWithoutReopeningEntry() throws {
+        let failing = service(destroy: { throw CocoaError(.fileWriteNoPermission) })
+        try failing.prepare(.disable, generation: 13)
+        XCTAssertThrowsError(try failing.erase(.disable, generation: 13))
+        // A new process reconstructs the operation from its persisted mode.
+        let resumed = service()
+        let mode = try XCTUnwrap(defaults.string(forKey: "pendingEraseMode").flatMap(ActionButtonMode.init(rawValue:)))
+        try resumed.prepare(mode, generation: 14)
+        try resumed.erase(mode, generation: 14)
+        XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.bruteForceLockMarker.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: paths.pendingMarker.path))
+        XCTAssertNil(defaults.string(forKey: "pendingEraseMode"))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: paths.documents.path), [])
+        XCTAssertEqual(keyDeletions, 1)
+    }
+    func testOrdinaryResetCannotClearCompletedPermanentEntryLock() throws {
+        let erase = service()
+        try erase.prepare(.disable, generation: 15)
+        try erase.erase(.disable, generation: 15)
+        // Defence in depth: even calling the low-level reset service cannot
+        // remove a permanent lock or make the empty container look new.
+        try erase.prepare(.reset, generation: 16)
+        try erase.erase(.reset, generation: 16)
+        XCTAssertTrue(defaults.bool(forKey: "vaultDisabled"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.bruteForceLockMarker.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.disabledMarker.path))
+        XCTAssertNil(defaults.string(forKey: "mainCode"))
+        XCTAssertNil(defaults.string(forKey: "pendingEraseMode"))
     }
     func testBruteForceErasePreservesSilentLockMarker() throws {
         try write("locked", to: paths.bruteForceLockMarker)

@@ -10,7 +10,7 @@ enum ActionButtonMode: String, CaseIterable, Identifiable {
         case .camera: return "Открыть камеру"
         case .photos: return "Удалить все фото"
         case .reset: return "Сбросить все данные"
-        case .disable: return "Стереть данные и сбросить вход"
+        case .disable: return "Стереть данные и заблокировать вход"
         }
     }
     var detail: String {
@@ -19,7 +19,7 @@ enum ActionButtonMode: String, CaseIterable, Identifiable {
         case .camera: return "Камера открывается без основного пароля."
         case .photos: return "Удаляются фото, папки снимков, подписи к фото и временные экспорты. Дневник и настройки остаются."
         case .reset: return "Удаляются фото, дневник, метаданные, настройки, пароли, шаблоны и ключ шифрования. Приложение возвращается к первоначальным настройкам."
-        case .disable: return "Удаляются данные, ключ шифрования и старые коды. После очистки можно сразу создать новое пустое хранилище. Постоянной блокировки приложения больше нет."
+        case .disable: return "Данные, ключ шифрования и коды удаляются безвозвратно. Приложение остаётся обычным калькулятором, а скрытый вход блокируется до полного удаления и повторной установки приложения. Создание нового PIN не предлагается."
         }
     }
 }
@@ -84,6 +84,8 @@ struct VaultDirectories {
     }
     var disabledMarker: URL { support.appendingPathComponent("VaultDisabled.flag") }
     var pendingMarker: URL { support.appendingPathComponent("VaultErase.pending") }
+    // Historical filename, shared by wrong-PIN and Action Button permanent
+    // locks. Retain the path so existing protected installations stay locked.
     var bruteForceLockMarker: URL { support.appendingPathComponent("VaultBruteForce.locked") }
     var installMarker: URL { support.appendingPathComponent(".install-marker") }
 }
@@ -120,6 +122,12 @@ struct VaultEraseService {
             try Data("disabled".utf8).write(to: directories.disabledMarker,
                                              options: [.atomic, .completeFileProtection])
         }
+        if mode == .disable && !permanentLock {
+            // Persist the silent entry lock before deleting any keys/files.
+            // The pending record above resumes this step after interruption.
+            try Data("permanent-access-lock".utf8).write(to: directories.bruteForceLockMarker,
+                                                       options: [.atomic, .completeFileProtection])
+        }
     }
 
     func prepareCryptographicReset(_ mode: ActionButtonMode) throws {
@@ -128,7 +136,7 @@ struct VaultEraseService {
 
     func erase(_ mode: ActionButtonMode, generation: Int, cryptographicResetPrepared: Bool = false) throws {
         guard mode.destructive else { throw CocoaError(.featureUnsupported) }
-        let permanentLock = fm.fileExists(atPath: directories.bruteForceLockMarker.path)
+        let permanentLock = mode == .disable || fm.fileExists(atPath: directories.bruteForceLockMarker.path)
         // Destroy the key first; a failed deletion keeps the application closed.
         if !cryptographicResetPrepared { try prepareCryptographicReset(mode) }
         var failures: [Error] = []
@@ -147,7 +155,9 @@ struct VaultEraseService {
         if mode == .photos { remove(directories.documents.appendingPathComponent("VaultPhotos")) }
         else {
             clear(directories.documents)
-            clear(directories.support, preserving: Set(["VaultDisabled.flag", "VaultErase.pending"]).union(preservedSupportEntries))
+            clear(directories.support, preserving: Set([directories.disabledMarker.lastPathComponent,
+                directories.pendingMarker.lastPathComponent, directories.bruteForceLockMarker.lastPathComponent])
+                .union(preservedSupportEntries))
         }
         clear(directories.caches); clear(directories.temporary)
         guard failures.isEmpty else { throw failures[0] }
@@ -181,8 +191,8 @@ final class VaultLifecycle: ObservableObject {
     @Published private(set) var disabled: Bool
     @Published private(set) var lastError: String?
     @Published private(set) var generation: Int
-    // A brute-force lock intentionally keeps the public surface looking like
-    // the calculator. It blocks the vault gate without exposing its reason.
+    // Both permanent lock triggers keep the public surface looking like the
+    // calculator. The historical property name also covers Action Button.
     var blocksUI: Bool { !isBruteForceLocked && (disabled || isErasing || lastError != nil) }
     var canRetry: Bool { pendingMode != nil }
     var isBruteForceLocked: Bool { FileManager.default.fileExists(atPath: directories.bruteForceLockMarker.path) }
