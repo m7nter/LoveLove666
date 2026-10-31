@@ -4,13 +4,15 @@ final class RestrictedPlacesRadarUITests: XCTestCase {
     func testRadarShowsCameraSnapshotAndCanBeClosedWithoutChangingCalculatorAccess() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--test-calculator", "--preview-radar"]
+        app.launchArguments = ["--test-calculator", "--preview-radar", "-AppleLocale", "ru_RU"]
         app.launch()
         XCTAssertTrue(app.staticTexts["radar.title"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["radar.status"].exists)
         XCTAssertTrue(app.buttons["radar.recenter"].exists)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "radar.legend").firstMatch.exists)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "radar.details").firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Ожидаем координаты"].exists)
+        XCTAssertNotEqual(app.staticTexts["radar.distance"].label, "—")
         app.buttons["radar.recenter"].tap()
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Restricted-places-radar"; screenshot.lifetime = .keepAlways

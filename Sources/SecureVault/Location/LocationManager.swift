@@ -20,6 +20,17 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var requestedWhenInUse = false
     private var requestedAlways = false
     private var subscriptions: Set<AnyCancellable> = []
+    #if DEBUG && targetEnvironment(simulator)
+    private var previewLocation: CLLocation?
+
+    /// The preview must not race a real Core Location authorization callback.
+    /// It starts no sensors and is absent from the device application.
+    func seedPreviewLocation(_ sample: CLLocation) {
+        stop()
+        previewLocation = sample
+        location = sample
+    }
+    #endif
 
     override init() {
         super.init()
@@ -89,6 +100,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// reapply the preference after a permitted new setup.
     func stop() {
         dispatchPrecondition(condition: .onQueue(.main))
+        #if DEBUG && targetEnvironment(simulator)
+        previewLocation = nil
+        #endif
         demand.stop()
         applyUpdatePolicy()
         location = nil; heading = nil; lastError = nil
@@ -133,7 +147,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             if needsHeading { clManager.startUpdatingHeading() }
             else { clManager.stopUpdatingHeading(); heading = nil }
         }
-        if !plan.updateLocation { location = nil }
+        if !plan.updateLocation {
+            #if DEBUG && targetEnvironment(simulator)
+            location = previewLocation
+            #else
+            location = nil
+            #endif
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

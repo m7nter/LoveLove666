@@ -125,6 +125,7 @@ struct RestrictedPlacesRadarView: View {
             Spacer(minLength: 4)
             Text(summary?.distanceText ?? "—").font(.system(size: 23, weight: .semibold, design: .rounded))
                 .foregroundStyle((distance ?? .infinity) < radius ? .red : .white).monospacedDigit()
+                .accessibilityIdentifier("radar.distance")
         }.padding(14).background(.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 18))
             .padding(.horizontal, 20).padding(.top, 12).accessibilityIdentifier("radar.details")
     }

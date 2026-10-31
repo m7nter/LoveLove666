@@ -38,19 +38,8 @@ struct SecureVaultApp: App {
             UserDefaults.standard.removeObject(forKey: "vaultDisabled")
             UserDefaults.standard.removeObject(forKey: "pendingEraseMode")
             VaultGate.shared.allow()
-            try? CryptoManager.destroyKey()
-            _ = CryptoManager.encrypt(Data("ui-test-key".utf8))
-            if ProcessInfo.processInfo.arguments.contains("--test-legacy-avatar") {
-                let format = UIGraphicsImageRendererFormat(); format.scale = 1
-                let avatar = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 30), format: format).image { _ in
-                    UIColor.orange.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 40, height: 30))
-                }
-                if let jpeg = avatar.jpegData(compressionQuality: 0.8), let encrypted = CryptoManager.encrypt(jpeg) {
-                    UserDefaults.standard.set(encrypted, forKey: "protected.userAvatar")
-                }
-            }
-            try? CryptoManager.bindPIN("1357")
-            if ProcessInfo.processInfo.arguments.contains("--test-legacy-avatar") { CryptoManager.lockVault() }
+            // Encrypted fixtures are prepared after protected data becomes
+            // available, before the calculator is exposed to the UI test.
         }
         #endif
         PhotoExporter.cleanupTemporaryExports()
@@ -126,7 +115,7 @@ struct SecureVaultApp: App {
                 onStartTimer: startTimer,
                 onStopTimer: stopTimer
             )
-            .id(lifecycle.generation)
+            .id("\(lifecycle.generation):\(lifecycle.isErasing)")
             }
             }
             if privacyCover {
@@ -283,6 +272,7 @@ struct RootView: View {
     @State private var showWelcomeGuide = false
     #if DEBUG && targetEnvironment(simulator)
     @State private var showRadarPreview = false
+    @State private var calculatorFixturePrepared = false
     #endif
     @State private var accessError: String?
     @State private var accessChecked = false
@@ -337,12 +327,12 @@ struct RootView: View {
         .onAppear {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("--test-calculator") && args.contains("--preview-radar") {
-                RestrictedPlacesMonitor.shared.seedRadarPreview()
                 showRadarPreview = true
             }
         }
         .sheet(isPresented: $showRadarPreview) {
             RestrictedPlacesRadarView()
+                .onAppear { RestrictedPlacesMonitor.shared.seedRadarPreview() }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -357,6 +347,26 @@ struct RootView: View {
             showAccess = false
             return
         }
+        guard !VaultLifecycle.shared.isErasing else {
+            needsSetup = false; accessChecked = false; showAccess = false
+            return
+        }
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--test-calculator"), !calculatorFixturePrepared {
+            guard UIApplication.shared.isProtectedDataAvailable else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { refreshAccess(initial: initial) }
+                return
+            }
+            do {
+                try prepareCalculatorFixture()
+                calculatorFixturePrepared = true
+            } catch {
+                accessError = "Не удалось подготовить UI-тест: \(error.localizedDescription)"
+                accessChecked = true; showAccess = true
+                return
+            }
+        }
+        #endif
         do {
             defer { if !isUnlocked { CryptoManager.lockVault() } }
             try MainPINChangeTransaction.application.recoverIfNeeded()
@@ -387,6 +397,27 @@ struct RootView: View {
             }
         }
     }
+    #if DEBUG && targetEnvironment(simulator)
+    private func prepareCalculatorFixture() throws {
+        try CryptoManager.destroyKey()
+        guard CryptoManager.encrypt(Data("ui-test-key".utf8)) != nil else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        if ProcessInfo.processInfo.arguments.contains("--test-legacy-avatar") {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let avatar = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 30), format: format).image { _ in
+                UIColor.orange.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 40, height: 30))
+            }
+            guard let jpeg = avatar.jpegData(compressionQuality: 0.8), let encrypted = CryptoManager.encrypt(jpeg) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            UserDefaults.standard.set(encrypted, forKey: "protected.userAvatar")
+        }
+        try KeychainCodeStore.write("1357", for: "mainCode")
+        try CryptoManager.bindPIN("1357")
+        CryptoManager.lockVault()
+    }
+    #endif
     private var isUITestFixture: Bool {
         #if DEBUG && targetEnvironment(simulator)
         let args = ProcessInfo.processInfo.arguments
@@ -401,19 +432,12 @@ struct RootView: View {
               (try? VaultGate.shared.withAccess { true }) == true else { return }
         if (try? CryptoManager.unlock(withPIN: pin)) == nil {
             #if DEBUG && targetEnvironment(simulator)
-            // Recreate the isolated fixture if an earlier UI test left a
-            // partially erased Keychain item behind. This branch is removed
-            // from device builds and cannot weaken a real install.
             if ProcessInfo.processInfo.arguments.contains("--test-calculator") {
-                VaultGate.shared.allow()
-                try? CryptoManager.destroyKey()
-                _ = CryptoManager.encrypt(Data("ui-test-key".utf8))
-                try? CryptoManager.bindPIN(pin)
-                guard (try? CryptoManager.unlock(withPIN: pin)) != nil else { return }
-            } else { return }
-            #else
-            return
+                accessError = "Не удалось открыть ключ подготовленного UI-теста."
+                showAccess = true
+            }
             #endif
+            return
         }
         finishUnlock()
     }

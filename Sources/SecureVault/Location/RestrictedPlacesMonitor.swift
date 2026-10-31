@@ -181,7 +181,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     func seedRadarPreview() {
         let user = CLLocation(coordinate: .init(latitude: 55, longitude: 37), altitude: 0,
             horizontalAccuracy: 2, verticalAccuracy: 1, timestamp: Date())
-        LocationManager.shared.location = user
+        LocationManager.shared.seedPreviewLocation(user)
         let places = [
             RestrictedPlace(id: "preview-playground", kind: .playground, name: "Детская площадка",
                 point: .init(lat: 55.0004, lon: 37), lines: [], outerRings: [], innerRings: []),

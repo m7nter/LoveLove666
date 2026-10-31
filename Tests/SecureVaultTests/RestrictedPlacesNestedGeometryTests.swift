@@ -39,7 +39,8 @@ final class RestrictedPlacesNestedGeometryTests: XCTestCase {
         tags["type"] = "multipolygon"
         let element: [String: Any] = ["type": "relation", "id": 1, "tags": tags, "members": members]
         let data = try JSONSerialization.data(withJSONObject: ["elements": [element]])
-        return try XCTUnwrap(RestrictedPlacesParser.parse(data).first)
+        let places = try RestrictedPlacesParser.parse(data)
+        return try XCTUnwrap(places.first)
     }
 
     func testOuterIslandInsideCourtyardRemainsProtectedForAllPriorityCategories() throws {
