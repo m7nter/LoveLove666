@@ -268,6 +268,7 @@ private struct RadarStreetMap: UIViewRepresentable {
         map.isPitchEnabled = false; map.isRotateEnabled = false
         map.showsUserLocation = false // Reuse the camera's GPS, never a second CLLocationManager.
         map.showsLogoView = false; map.showsAttributionButton = true; map.showsScale = true
+        map.scaleBarPosition = .bottomLeft
         map.backgroundColor = UIColor(white: 0.10, alpha: 1)
         let canvas = context.coordinator.canvas
         canvas.map = map; canvas.frame = map.bounds; canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
