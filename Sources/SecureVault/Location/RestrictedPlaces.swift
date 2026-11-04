@@ -69,6 +69,12 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
 
     private static func hasGeneralSchoolIdentity(_ tags: [String: String]) -> Bool {
         if let amenity = tags["amenity"], !["school", "college"].contains(amenity) { return false }
+        if let education = tags["education"], !["school", "college"].contains(education) { return false }
+        // A historic name alone must not turn a closed/unfinished facility
+        // back into an active school. Existing explicit building rules stay separate.
+        guard !["disused:amenity", "abandoned:amenity", "demolished:amenity", "construction:amenity",
+                "disused:education", "abandoned:education", "demolished:education", "construction:education"]
+            .contains(where: { tags[$0] != nil }), tags["disused"] != "yes", tags["abandoned"] != "yes" else { return false }
         // A shop, road, sports facility, etc. can mention a neighbouring school.
         guard !["shop", "leisure", "office", "government", "military", "highway", "railway",
                 "public_transport", "tourism", "craft", "healthcare"].contains(where: { tags[$0] != nil }) else { return false }

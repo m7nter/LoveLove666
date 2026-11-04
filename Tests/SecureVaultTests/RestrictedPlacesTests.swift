@@ -172,6 +172,9 @@ final class RestrictedPlacesTests: XCTestCase {
     func testSchoolNameFallbackDoesNotReclassifyOtherFacilitiesOrTheirOwner() {
         XCTAssertNil(RestrictedPlaceKind.classify(["shop": "books", "name": "Лицей"]))
         XCTAssertNil(RestrictedPlaceKind.classify(["highway": "residential", "name": "Лицей"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["education": "university", "name": "Лицей"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["disused:amenity": "school", "building": "yes", "name": "Лицей №1"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["construction:education": "school", "name": "Гимназия №2"]))
         XCTAssertNil(RestrictedPlaceKind.classify(["building": "yes", "name": "Склад", "operator": "Лицей №1"]))
         XCTAssertEqual(RestrictedPlaceKind.classify(["leisure": "playground", "name": "Лицей №1"]), .playground)
         XCTAssertEqual(RestrictedPlaceKind.classify(["amenity": "police", "name": "Бывший лицей"]), .police)
