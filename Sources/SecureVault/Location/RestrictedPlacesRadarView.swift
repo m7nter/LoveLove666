@@ -340,7 +340,7 @@ private struct RadarStreetMap: UIViewRepresentable {
                 map.setCenter(location.coordinate, zoomLevel: fit ? fittedZoom : map.zoomLevel, animated: hasCentered && requestedCenter)
                 hasCentered = true
             }
-            if geometryChanged || locationChanged || selectionChanged || requestedCenter || verifiedRadiusChanged { canvas.setNeedsDisplay() }
+            if geometryChanged || locationChanged || selectionChanged || requestedCenter || verifiedRadiusChanged || viewportChanged { canvas.setNeedsDisplay() }
         }
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             if let id = canvas.place(at: gesture.location(in: canvas)) { parent.onSelect(id) }
