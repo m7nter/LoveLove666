@@ -56,6 +56,12 @@ final class RestrictedPlacesSearchPolicyTests: XCTestCase {
         let data = RestrictedPlacesSnapshot(center: user(), radius: 650, fetchedAt: now, places: [farther])
         XCTAssertEqual(RestrictedPlacesRadarPolicy.places(location: moved, settings: settings, snapshot: data, now: now)?.count, 0)
     }
+    func testFailedExplicitRefreshRetriesAfterBackoffEvenWhenPreviousSnapshotIsStillUsable() {
+        XCTAssertFalse(RestrictedPlacesSearchPolicy.shouldRequest(location: user(), settings: settings,
+            snapshot: snapshot(), now: now, notBefore: now.addingTimeInterval(10), failureCount: 1))
+        XCTAssertTrue(RestrictedPlacesSearchPolicy.shouldRequest(location: user(), settings: settings,
+            snapshot: snapshot(), now: now, notBefore: now.addingTimeInterval(-1), failureCount: 1))
+    }
     func testOfflineSpatialIndexDoesNotLeakDistantCategorySummaries() {
         let distant = RestrictedPlace(id: "far-police", kind: .police, name: nil,
             point: .init(lat: 2_000 / 110_574.0, lon: 0), lines: [], outerRings: [], innerRings: [])

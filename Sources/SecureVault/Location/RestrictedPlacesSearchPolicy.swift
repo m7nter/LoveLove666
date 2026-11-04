@@ -41,7 +41,7 @@ enum RestrictedPlacesSearchPolicy {
         if failureCount > 0, now < notBefore { return false }
         guard let snapshot, snapshot.covers(location, settings: settings, now: now) else { return true }
         guard now >= notBefore else { return false }
-        return now.timeIntervalSince(snapshot.fetchedAt) >= 480
+        return failureCount > 0 || now.timeIntervalSince(snapshot.fetchedAt) >= 480
             || snapshot.center.distance(from: location) >= movementThreshold
             || visibleRadius(location: location, settings: settings, snapshot: snapshot)
                 + 0.01 < detailRadius(location: location, settings: settings)
