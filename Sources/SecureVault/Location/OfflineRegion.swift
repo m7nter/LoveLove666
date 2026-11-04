@@ -54,6 +54,14 @@ struct OfflineRegionBounds: Codable, Equatable {
         return coordinate.latitude >= south + latitudeMargin && coordinate.latitude <= north - latitudeMargin
             && coordinate.longitude >= west + longitudeMargin && coordinate.longitude <= east - longitudeMargin
     }
+    func containedRadius(at coordinate: CLLocationCoordinate2D) -> Double {
+        guard contains(coordinate) else { return 0 }
+        let longitudeScale = max(100, 110_000 * cos(coordinate.latitude * .pi / 180))
+        return max(0, [(coordinate.latitude - south) * 110_000,
+                       (north - coordinate.latitude) * 110_000,
+                       (coordinate.longitude - west) * longitudeScale,
+                       (east - coordinate.longitude) * longitudeScale].min() ?? 0)
+    }
     func expanded(by meters: Double) -> Self {
         let dy = meters / 110_000, dx = meters / max(100, 110_000 * cos(center.latitude * .pi / 180))
         return .init(south: max(-85, south - dy), west: max(-180, west - dx), north: min(85, north + dy), east: min(180, east + dx))

@@ -480,10 +480,11 @@ enum RestrictedPlacesPolicy {
         if snapshot.isEmptyOnlineResponse && settings.blockOnEmptyOnlineResponse {
             return .init(blocked: true, message: "OSM вернул пустой ответ. Включён запрет съёмки при неполных данных.")
         }
-        let detailRadius = max(1000, settings.maximumRadius + location.horizontalAccuracy)
+        let detailRadius = RestrictedPlacesSearchPolicy.visibleRadius(location: location, settings: settings, snapshot: snapshot)
         let nearby = snapshot.index?.near(location, radius: detailRadius) ?? snapshot.places
         let candidates = nearby.filter { settings.includes($0.kind) }.compactMap { place -> (RestrictedPlace, Double)? in
             let distance = place.distance(from: location)
+            guard distance.isFinite, distance <= detailRadius else { return nil }
             return (place, distance)
         }.sorted { $0.1 < $1.1 }
         var nearestByKind: [RestrictedPlaceKind: RestrictedPlaceSummary] = [:]

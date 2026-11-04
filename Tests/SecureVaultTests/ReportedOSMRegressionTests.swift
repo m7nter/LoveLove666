@@ -11,20 +11,20 @@ final class ReportedOSMRegressionTests: XCTestCase {
               horizontalAccuracy: 1, verticalAccuracy: 1, timestamp: now)
     }
 
-    func testEveryMappedPlaygroundInReportedAreaSurvivesParserIndexAndRadar() throws {
+    func testAllReportedPlaygroundsSurviveParserAndIndexAndRadarUses500Metres() throws {
         let places = try RestrictedPlacesParser.parse(Data(Self.playgrounds.utf8))
         XCTAssertEqual(places.count, 8)
         XCTAssertTrue(places.allSatisfy { $0.kind == .playground })
         let settings = RestrictedPlaceSettings(enabled: true)
         let index = RestrictedPlaceIndex(places)
+        XCTAssertEqual(Set(index.near(user(), radius: 1_000).map(\.id)), Set(places.map(\.id)))
         let online = RestrictedPlacesSnapshot(center: user(), radius: 1_100, fetchedAt: now, places: places)
         let offline = RestrictedPlacesSnapshot(center: user(), radius: 0, fetchedAt: now, places: places,
             offlineBounds: .init(south: -0.1, west: -0.1, north: 0.1, east: 0.1), index: index)
         for snapshot in [online, offline] {
             let visible = try XCTUnwrap(RestrictedPlacesRadarPolicy.places(location: user(),
                 settings: settings, snapshot: snapshot, now: now))
-            XCTAssertEqual(Set(visible.map(\.id)), Set(places.map(\.id)))
-            XCTAssertEqual(visible.count, 8, "Radar must not truncate objects to its three category summaries")
+            XCTAssertEqual(visible.map(\.id), ["way/2"], "Only this reported footprint is within the new 500 m overview")
         }
     }
 

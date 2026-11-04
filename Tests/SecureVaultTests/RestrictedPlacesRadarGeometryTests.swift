@@ -3,6 +3,15 @@ import CoreLocation
 @testable import SecureVault
 
 final class RestrictedPlacesRadarGeometryTests: XCTestCase {
+    func testOverviewZoomFitsItsWholeDiameterOnTheShorterViewportSide() throws {
+        let viewport = CGSize(width: 378, height: 420)
+        let zoom = try XCTUnwrap(RestrictedPlacesRadarGeometry.zoomToFit(radius: 500,
+            viewport: viewport, metersPerPoint: 2, currentZoom: 15))
+        let resultingScale = 2 / pow(2, zoom - 15)
+        XCTAssertEqual(Double(min(viewport.width, viewport.height) - 64) * resultingScale, 1_000, accuracy: 0.01)
+        XCTAssertNil(RestrictedPlacesRadarGeometry.zoomToFit(radius: 500, viewport: .zero, metersPerPoint: 2, currentZoom: 15))
+        XCTAssertNil(RestrictedPlacesRadarGeometry.zoomToFit(radius: 500, viewport: viewport, metersPerPoint: 0, currentZoom: 15))
+    }
     func testPointBuffersHaveTheirConfiguredRadiusAtDifferentLatitudes() {
         for latitude in [0.0, 43, 60, 74] {
             for radius in [1.0, 65, 100, 1000] {

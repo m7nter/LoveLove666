@@ -10,7 +10,7 @@ enum RestrictedPlacesRadarPolicy {
               RestrictedPlacesPolicy.locationProblem(location, settings: settings, now: now) == nil,
               let location, let snapshot, snapshot.covers(location, settings: settings, now: now),
               !(settings.blockOnEmptyOnlineResponse && snapshot.isEmptyOnlineResponse) else { return nil }
-        let radius = max(1_000, settings.maximumRadius + location.horizontalAccuracy)
+        let radius = RestrictedPlacesSearchPolicy.visibleRadius(location: location, settings: settings, snapshot: snapshot)
         let candidates = snapshot.index?.near(location, radius: radius) ?? snapshot.places
         var nearby: [(place: RestrictedPlace, distance: Double)] = []
         for place in candidates where settings.includes(place.kind) {

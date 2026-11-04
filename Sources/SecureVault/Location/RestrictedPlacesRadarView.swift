@@ -17,6 +17,10 @@ struct RestrictedPlacesRadarView: View {
     private var selected: RestrictedPlace? {
         monitor.radarPlaces.first { $0.id == selectedID } ?? monitor.radarPlaces.first
     }
+    private var targetRadius: Double {
+        location.location.map { RestrictedPlacesSearchPolicy.detailRadius(location: $0, settings: settings.restrictedPlaces) }
+            ?? RestrictedPlacesSearchPolicy.standardRadius
+    }
     private var statusColor: Color {
         !monitor.radarIsVerified ? .orange : (monitor.decision.blocked ? .red : .green)
     }
@@ -61,9 +65,18 @@ struct RestrictedPlacesRadarView: View {
             ZStack(alignment: .topTrailing) {
                 RadarStreetMap(places: monitor.radarPlaces, revision: monitor.radarRevision,
                     location: location.location, restrictions: settings.restrictedPlaces,
+                    targetRadius: targetRadius, verifiedRadius: monitor.radarVisibleRadius,
                     selectedID: selected?.id, following: $following, recenter: recenter,
                     mapUnavailable: $mapUnavailable, onSelect: { selectedID = $0 })
                     .accessibilityIdentifier("radar.map")
+                VStack {
+                    Text(monitor.radarVisibleRadius.map { "Проверено до \(Int($0.rounded(.down))) м" }
+                         ?? "Обзор \(Int(targetRadius.rounded(.up))) м")
+                        .font(.caption.weight(.semibold)).padding(.horizontal, 11).padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .accessibilityIdentifier("radar.range")
+                    Spacer()
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(14).allowsHitTesting(false)
                 Button {
                     following = true
                     recenter += 1
@@ -71,7 +84,7 @@ struct RestrictedPlacesRadarView: View {
                     Image(systemName: following ? "location.fill" : "location")
                         .font(.system(size: 19, weight: .semibold)).foregroundStyle(following ? .orange : .white)
                         .frame(width: 46, height: 46).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15))
-                }.padding(14).buttonStyle(.plain).accessibilityLabel("К моей позиции").accessibilityIdentifier("radar.recenter")
+                }.padding(14).buttonStyle(.plain).accessibilityLabel("Показать всю область вокруг меня").accessibilityIdentifier("radar.recenter")
                 if !RestrictedPlacesRadarGeometry.hasUsableCoordinate(location.location) {
                     VStack(spacing: 10) {
                         Image(systemName: "location.slash").font(.title)
@@ -169,6 +182,12 @@ private extension RestrictedPlaceKind {
 
 /// Projection-independent helpers are shared by the overlay and its regressions.
 enum RestrictedPlacesRadarGeometry {
+    static func zoomToFit(radius: Double, viewport: CGSize, metersPerPoint: Double, currentZoom: Double) -> Double? {
+        let side = Double(min(viewport.width, viewport.height)) - 64
+        guard radius.isFinite, radius > 0, side.isFinite, side > 0,
+              metersPerPoint.isFinite, metersPerPoint > 0, currentZoom.isFinite else { return nil }
+        return min(19, max(8, currentZoom + log2(side * metersPerPoint / (2 * radius))))
+    }
     static func hasUsableCoordinate(_ location: CLLocation?) -> Bool {
         guard let location else { return false }
         return CLLocationCoordinate2DIsValid(location.coordinate) && abs(location.coordinate.latitude) <= 85.05112878
@@ -210,11 +229,24 @@ enum RestrictedPlacesRadarGeometry {
     }
 }
 
+private final class RadarMLNMapView: MLNMapView {
+    var onViewportChange: ((MLNMapView) -> Void)?
+    private var previousSize = CGSize.zero
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != previousSize else { return }
+        previousSize = bounds.size
+        onViewportChange?(self)
+    }
+}
+
 private struct RadarStreetMap: UIViewRepresentable {
     let places: [RestrictedPlace]
     let revision: Int
     let location: CLLocation?
     let restrictions: RestrictedPlaceSettings
+    let targetRadius: Double
+    let verifiedRadius: Double?
     let selectedID: String?
     @Binding var following: Bool
     let recenter: Int
@@ -224,7 +256,8 @@ private struct RadarStreetMap: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> MLNMapView {
         OpenStreetMapConfiguration.configure()
-        let map = MLNMapView(frame: .zero, styleURL: OpenStreetMapConfiguration.styleURL)
+        let map = RadarMLNMapView(frame: .zero, styleURL: OpenStreetMapConfiguration.styleURL)
+        map.onViewportChange = { [weak coordinator = context.coordinator] map in coordinator?.update(map) }
         map.delegate = context.coordinator
         map.minimumZoomLevel = 8; map.maximumZoomLevel = 19
         map.isPitchEnabled = false; map.isRotateEnabled = false
@@ -234,6 +267,10 @@ private struct RadarStreetMap: UIViewRepresentable {
         let canvas = context.coordinator.canvas
         canvas.map = map; canvas.frame = map.bounds; canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         canvas.backgroundColor = .clear; canvas.isUserInteractionEnabled = false
+        #if DEBUG && targetEnvironment(simulator)
+        canvas.isAccessibilityElement = true
+        canvas.accessibilityIdentifier = "radar.debug.overlay"
+        #endif
         map.addSubview(canvas)
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         tap.cancelsTouchesInView = false
@@ -251,6 +288,7 @@ private struct RadarStreetMap: UIViewRepresentable {
         context.coordinator.update(map)
     }
     static func dismantleUIView(_ map: MLNMapView, coordinator: Coordinator) {
+        (map as? RadarMLNMapView)?.onViewportChange = nil
         map.delegate = nil
         coordinator.canvas.map = nil
     }
@@ -266,6 +304,9 @@ private struct RadarStreetMap: UIViewRepresentable {
         private var lastLongitude: Double?
         private var lastAccuracy: Double?
         private var lastSelection: String?
+        private var lastViewport = CGSize.zero
+        private var lastRadius: Double?
+        private var lastVerifiedRadius: Double?
         init(_ parent: RadarStreetMap) { self.parent = parent }
 
         func update(_ map: MLNMapView) {
@@ -276,6 +317,11 @@ private struct RadarStreetMap: UIViewRepresentable {
             }
             canvas.selectedID = parent.selectedID
             canvas.location = parent.location
+            canvas.verifiedRadius = parent.verifiedRadius
+            let viewportChanged = lastViewport != map.bounds.size
+            let radiusChanged = lastRadius != parent.targetRadius
+            let verifiedRadiusChanged = lastVerifiedRadius != parent.verifiedRadius
+            lastViewport = map.bounds.size; lastRadius = parent.targetRadius; lastVerifiedRadius = parent.verifiedRadius
             let locationChanged = lastLatitude != parent.location?.coordinate.latitude
                 || lastLongitude != parent.location?.coordinate.longitude || lastAccuracy != parent.location?.horizontalAccuracy
             let selectionChanged = lastSelection != parent.selectedID
@@ -284,11 +330,16 @@ private struct RadarStreetMap: UIViewRepresentable {
             let requestedCenter = lastRecenter != parent.recenter
             lastRecenter = parent.recenter
             if RestrictedPlacesRadarGeometry.hasUsableCoordinate(parent.location), let location = parent.location,
-               !hasCentered || requestedCenter || (parent.following && CLLocation(latitude: map.centerCoordinate.latitude, longitude: map.centerCoordinate.longitude).distance(from: location) > 1) {
-                map.setCenter(location.coordinate, zoomLevel: hasCentered ? map.zoomLevel : 15.5, animated: hasCentered && requestedCenter)
+               !hasCentered || requestedCenter || (parent.following && (viewportChanged || radiusChanged
+                || CLLocation(latitude: map.centerCoordinate.latitude, longitude: map.centerCoordinate.longitude).distance(from: location) > 1)),
+               let fittedZoom = RestrictedPlacesRadarGeometry.zoomToFit(radius: parent.targetRadius,
+                    viewport: map.bounds.size, metersPerPoint: map.metersPerPoint(atLatitude: location.coordinate.latitude),
+                    currentZoom: map.zoomLevel) {
+                let fit = !hasCentered || requestedCenter || viewportChanged || radiusChanged
+                map.setCenter(location.coordinate, zoomLevel: fit ? fittedZoom : map.zoomLevel, animated: hasCentered && requestedCenter)
                 hasCentered = true
             }
-            if geometryChanged || locationChanged || selectionChanged || requestedCenter { canvas.setNeedsDisplay() }
+            if geometryChanged || locationChanged || selectionChanged || requestedCenter || verifiedRadiusChanged { canvas.setNeedsDisplay() }
         }
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             if let id = canvas.place(at: gesture.location(in: canvas)) { parent.onSelect(id) }
@@ -303,6 +354,7 @@ private struct RadarStreetMap: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) { canvas.setNeedsDisplay() }
         func mapViewDidFinishLoadingMap(_ mapView: MLNMapView) {
             DispatchQueue.main.async { [weak self] in self?.parent.mapUnavailable = false }
+            update(mapView)
             canvas.setNeedsDisplay()
         }
         func mapViewDidFailLoadingMap(_ mapView: MLNMapView, withError error: Error) {
@@ -330,12 +382,21 @@ private final class RadarMapCanvas: UIView {
     var features: [RadarMapFeature] = []
     var selectedID: String?
     var location: CLLocation?
+    var verifiedRadius: Double?
     private var markerHits: [(String, CGPoint)] = []
     private var areaHits: [(id: String, territory: CGPath, pointBuffer: CGPath, boundaryBuffer: CGPath)] = []
 
     override func draw(_ rect: CGRect) {
         guard let map, let context = UIGraphicsGetCurrentContext(), bounds.width > 0, bounds.height > 0 else { return }
         markerHits.removeAll(keepingCapacity: true); areaHits.removeAll(keepingCapacity: true)
+        if let location, let radius = verifiedRadius {
+            let center = OSMCoordinate(lat: location.coordinate.latitude, lon: location.coordinate.longitude)
+            context.saveGState()
+            context.addPath(path([RestrictedPlacesRadarGeometry.circle(around: center, radius: radius)], close: true, map: map))
+            context.setLineWidth(1.5); context.setLineDash(phase: 0, lengths: [6, 5])
+            context.setStrokeColor(UIColor.darkGray.withAlphaComponent(0.6).cgColor); context.strokePath()
+            context.restoreGState()
+        }
         for feature in features {
             let place = feature.place, color = place.kind.radarColor
             // Use the latitude of the visible area. A large military/admin
@@ -372,6 +433,9 @@ private final class RadarMapCanvas: UIView {
             drawMarker(feature.place, at: point, context: context)
             markerHits.append((feature.place.id, point))
         }
+        #if DEBUG && targetEnvironment(simulator)
+        accessibilityValue = String(markerHits.count)
+        #endif
         if RestrictedPlacesRadarGeometry.hasUsableCoordinate(location), let location {
             let point = map.convert(location.coordinate, toPointTo: self)
             guard point.x.isFinite, point.y.isFinite else { return }

@@ -15,6 +15,14 @@ final class RestrictedPlacesRadarUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Ожидаем координаты"].exists)
         XCTAssertNotEqual(app.staticTexts["radar.distance"].label, "—")
         app.buttons["radar.recenter"].tap()
+        XCTAssertTrue(app.staticTexts["radar.range"].label.contains("500"))
+        let overlay = app.descendants(matching: .any).matching(identifier: "radar.debug.overlay").firstMatch
+        let allMarkers = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "4"), object: overlay)
+        XCTAssertEqual(XCTWaiter.wait(for: [allMarkers], timeout: 10), .completed)
+        app.descendants(matching: .any).matching(identifier: "radar.map").firstMatch.pinch(withScale: 2, velocity: 1)
+        app.buttons["radar.recenter"].tap()
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "4"), object: overlay)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 10), .completed)
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Restricted-places-radar"; screenshot.lifetime = .keepAlways
         add(screenshot)

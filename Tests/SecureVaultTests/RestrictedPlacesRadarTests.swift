@@ -17,7 +17,7 @@ final class RestrictedPlacesRadarTests: XCTestCase {
               places: places, isEmptyOnlineResponse: empty)
     }
     func testAllNearbyObjectsAreShownRatherThanOnlyThreeCategorySummaries() throws {
-        let places = (1...5).map { place("school-\($0)", kind: .school, north: Double($0) * 100) }
+        let places = (1...5).map { place("school-\($0)", kind: .school, north: Double($0) * 80) }
         let data = try XCTUnwrap(RestrictedPlacesRadarPolicy.places(location: user(),
             settings: .init(enabled: true), snapshot: snapshot(places), now: now))
         XCTAssertEqual(data.map(\.id), places.map(\.id))
@@ -34,7 +34,7 @@ final class RestrictedPlacesRadarTests: XCTestCase {
     }
 
     func testMovingThroughOfflineRegionReplacesPlaygroundsWithoutLimitingTheirCount() throws {
-        let places = (0..<12).map { place("playground-\($0)", kind: .playground, north: Double($0) * 250) }
+        let places = (0..<24).map { place("playground-\($0)", kind: .playground, north: Double($0) * 100) }
         let bounds = OfflineRegionBounds(south: 54.9, west: 69.9, north: 55.1, east: 70.1)
         let data = RestrictedPlacesSnapshot(center: user(), radius: 0, fetchedAt: now, places: places,
             offlineBounds: bounds, index: RestrictedPlaceIndex(places))
@@ -42,7 +42,7 @@ final class RestrictedPlacesRadarTests: XCTestCase {
         for north in [0.0, 800, 1_600] {
             let moved = CLLocation(coordinate: .init(latitude: 55 + north / 111_000, longitude: 70),
                 altitude: 0, horizontalAccuracy: 1, verticalAccuracy: 1, timestamp: now)
-            let expected = places.filter { $0.distance(from: moved) <= 1_000 }
+            let expected = places.filter { $0.distance(from: moved) <= 500 }
                 .sorted { $0.distance(from: moved) < $1.distance(from: moved) }.map(\.id)
             let visible = try XCTUnwrap(RestrictedPlacesRadarPolicy.places(location: moved, settings: settings,
                 snapshot: data, now: now))

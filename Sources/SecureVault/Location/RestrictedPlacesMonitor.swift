@@ -12,6 +12,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     @Published private(set) var radarPlaces: [RestrictedPlace] = []
     @Published private(set) var radarIsVerified = false
     @Published private(set) var radarRevision = 0
+    @Published private(set) var radarVisibleRadius: Double?
     private var radarSourceDate: Date?
     private var radarSourceIsOffline = false
     private var radarSettings: RestrictedPlaceSettings?
@@ -33,6 +34,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     private var activationDate = Date.distantPast
     private var nextRequest = Date.distantPast
     private var failureCount = 0
+    private var forceRefresh = false
     private var previousKinds: Set<RestrictedPlaceKind>?
     private var unavailableReason = "Проверяем ближайшие территории…"
     private let session: URLSession
@@ -77,6 +79,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     func retryNow() {
         nextRequest = .distantPast
         failureCount = 0
+        forceRefresh = true
         unavailableReason = "Запрашиваем данные OpenStreetMap через Overpass…"
         if active { tick() }
     }
@@ -147,14 +150,12 @@ final class RestrictedPlacesMonitor: ObservableObject {
         if settings.checkMode == .offline { return }
         guard RestrictedPlaceKind.allCases.contains(where: settings.includes),
               RestrictedPlacesPolicy.locationProblem(location, settings: settings, now: Date()) == nil,
-              let location, requestTask == nil, Date() >= nextRequest else { return }
-        let covered = snapshot?.covers(location, settings: settings, now: Date()) == true
-        let shouldRefresh = !covered || snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 480 || $0.center.distance(from: location) > 250 } == true
-        guard shouldRefresh else { return }
-        // Keep enough context for the camera to show the three nearest unique
-        // categories, even when their protection radius is smaller (for
-        // example, a police point 800 m away from the user).
-        let radius = min(1500, max(1000, settings.maximumRadius + settings.accuracyLimit + 200))
+              let location, requestTask == nil else { return }
+        guard RestrictedPlacesSearchPolicy.shouldRequest(location: location, settings: settings,
+            snapshot: snapshot, now: Date(), notBefore: nextRequest, failureCount: failureCount,
+            force: forceRefresh) else { return }
+        let radius = RestrictedPlacesSearchPolicy.requestRadius(location: location, settings: settings)
+        forceRefresh = false
         fetch(near: location, radius: radius, settings: settings, preserveDecision: effectiveSnapshot != nil)
     }
 
@@ -164,6 +165,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
     }
 
     private func clearRadar() {
+        if radarVisibleRadius != nil { radarVisibleRadius = nil }
         if radarIsVerified || !radarPlaces.isEmpty {
             radarPlaces = []; radarIsVerified = false; radarRevision += 1
         }
@@ -172,7 +174,9 @@ final class RestrictedPlacesMonitor: ObservableObject {
 
     private func updateRadar(snapshot: RestrictedPlacesSnapshot?, location: CLLocation?, settings: RestrictedPlaceSettings) {
         guard let places = RestrictedPlacesRadarPolicy.places(location: location, settings: settings, snapshot: snapshot),
-              let snapshot else { clearRadar(); return }
+              let snapshot, let location else { clearRadar(); return }
+        let radius = RestrictedPlacesSearchPolicy.visibleRadius(location: location, settings: settings, snapshot: snapshot)
+        if radarVisibleRadius != radius { radarVisibleRadius = radius }
         let isOffline = snapshot.offlineBounds != nil || snapshot.offlineCoverage != nil
         if !radarIsVerified || radarSourceDate != snapshot.fetchedAt || radarSourceIsOffline != isOffline
             || radarSettings != settings || radarPlaces.map(\.id) != places.map(\.id) {
@@ -434,7 +438,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
                     let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
                     let server = response.endpoint.host ?? "Overpass"
                     self.lastCheckSummary = "Успешно: найдено объектов — \(response.places.count). \(server), \(elapsed) с."
-                    self.failureCount = 0; self.nextRequest = Date().addingTimeInterval(30)
+                    self.failureCount = 0; self.nextRequest = Date().addingTimeInterval(RestrictedPlacesSearchPolicy.successCooldown)
                     self.unavailableReason = "Проверяем ближайшие территории…"
                     self.tick()
                 }
