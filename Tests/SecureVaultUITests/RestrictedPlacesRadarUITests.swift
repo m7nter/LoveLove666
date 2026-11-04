@@ -16,12 +16,12 @@ final class RestrictedPlacesRadarUITests: XCTestCase {
         XCTAssertNotEqual(app.staticTexts["radar.distance"].label, "—")
         app.buttons["radar.recenter"].tap()
         XCTAssertTrue(app.staticTexts["radar.range"].label.contains("500"))
-        let overlay = app.descendants(matching: .any).matching(identifier: "radar.debug.overlay").firstMatch
-        let allMarkers = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "4"), object: overlay)
+        let markerCount = app.staticTexts["radar.debug.markerCount"]
+        let allMarkers = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "На экране: 4"), object: markerCount)
         XCTAssertEqual(XCTWaiter.wait(for: [allMarkers], timeout: 10), .completed)
         app.descendants(matching: .any).matching(identifier: "radar.map").firstMatch.pinch(withScale: 2, velocity: 1)
         app.buttons["radar.recenter"].tap()
-        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "4"), object: overlay)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "На экране: 4"), object: markerCount)
         XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 10), .completed)
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "Restricted-places-radar"; screenshot.lifetime = .keepAlways

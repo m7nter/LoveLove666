@@ -75,6 +75,11 @@ struct RestrictedPlacesRadarView: View {
                         .font(.caption.weight(.semibold)).padding(.horizontal, 11).padding(.vertical, 8)
                         .background(.ultraThinMaterial, in: Capsule())
                         .accessibilityIdentifier("radar.range")
+                    #if DEBUG && targetEnvironment(simulator)
+                    Text("На экране: \(monitor.radarDebugVisibleMarkers)")
+                        .font(.caption2).padding(4).background(.ultraThinMaterial, in: Capsule())
+                        .accessibilityIdentifier("radar.debug.markerCount")
+                    #endif
                     Spacer()
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(14).allowsHitTesting(false)
                 Button {
@@ -267,10 +272,6 @@ private struct RadarStreetMap: UIViewRepresentable {
         let canvas = context.coordinator.canvas
         canvas.map = map; canvas.frame = map.bounds; canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         canvas.backgroundColor = .clear; canvas.isUserInteractionEnabled = false
-        #if DEBUG && targetEnvironment(simulator)
-        canvas.isAccessibilityElement = true
-        canvas.accessibilityIdentifier = "radar.debug.overlay"
-        #endif
         map.addSubview(canvas)
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         tap.cancelsTouchesInView = false
@@ -434,7 +435,12 @@ private final class RadarMapCanvas: UIView {
             markerHits.append((feature.place.id, point))
         }
         #if DEBUG && targetEnvironment(simulator)
-        accessibilityValue = String(markerHits.count)
+        let visibleMarkers = markerHits.count
+        DispatchQueue.main.async {
+            if RestrictedPlacesMonitor.shared.radarDebugVisibleMarkers != visibleMarkers {
+                RestrictedPlacesMonitor.shared.radarDebugVisibleMarkers = visibleMarkers
+            }
+        }
         #endif
         if RestrictedPlacesRadarGeometry.hasUsableCoordinate(location), let location {
             let point = map.convert(location.coordinate, toPointTo: self)

@@ -13,6 +13,9 @@ final class RestrictedPlacesMonitor: ObservableObject {
     @Published private(set) var radarIsVerified = false
     @Published private(set) var radarRevision = 0
     @Published private(set) var radarVisibleRadius: Double?
+    #if DEBUG && targetEnvironment(simulator)
+    @Published var radarDebugVisibleMarkers = 0
+    #endif
     private var radarSourceDate: Date?
     private var radarSourceIsOffline = false
     private var radarSettings: RestrictedPlaceSettings?
