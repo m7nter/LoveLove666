@@ -60,6 +60,25 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
 
     static let identifyingNameKeys = ["name", "name:ru", "operator", "operator:ru", "official_name"]
 
+    // Some general-education lyceums are incorrectly mapped as college or
+    // building=yes. Match their own identity, never merely a school owner.
+    private static let schoolIdentity = try! NSRegularExpression(pattern:
+        #"(^|[^a-zа-яёіїє])(лицей|ліцей|гимназия|гімназія|lyceum|lycee|lycée|сош|оош|нош)([^a-zа-яёіїє]|$)|(^|[^а-яё])(общеобразовательн[а-яё]*\s+школ|(?:средн[а-яё]*|основн[а-яё]*|начальн[а-яё]*)\s+(?:общеобразовательн[а-яё]*\s+)?школ|школа\s*(?:№\s*|n[o.]?\s*)?\d|школа[ -]интернат)"#)
+    private static let specializedSchoolIdentity = try! NSRegularExpression(pattern:
+        #"автошкол|школ[а-яё]*\s+(танц|искусств|вождения)|(?:музыкальн|художественн|спортивн)[а-яё]*\s+школ|высшая\s+школ|бизнес[ -]школ|(^|[^а-яё])(колледж|техникум|университет|институт)([^а-яё]|$)"#)
+
+    private static func hasGeneralSchoolIdentity(_ tags: [String: String]) -> Bool {
+        if let amenity = tags["amenity"], !["school", "college"].contains(amenity) { return false }
+        // A shop, road, sports facility, etc. can mention a neighbouring school.
+        guard !["shop", "leisure", "office", "government", "military", "highway", "railway",
+                "public_transport", "tourism", "craft", "healthcare"].contains(where: { tags[$0] != nil }) else { return false }
+        let identity = ["name", "name:ru", "official_name"].compactMap { tags[$0] }.joined(separator: " ").lowercased()
+        guard !identity.isEmpty else { return false }
+        let range = NSRange(identity.startIndex..<identity.endIndex, in: identity)
+        return specializedSchoolIdentity.firstMatch(in: identity, range: range) == nil
+            && schoolIdentity.firstMatch(in: identity, range: range) != nil
+    }
+
     /// Shared by PBF classification and bounded Overpass selections. Keeping
     /// these in one place prevents an alias recognized offline from silently
     /// disappearing online merely because office/government tags are absent.
@@ -110,6 +129,7 @@ enum RestrictedPlaceKind: String, CaseIterable, Codable, Identifiable, Hashable 
         if tags["amenity"] == "police" || tags["police"] != nil || tags["government"] == "police" || matches(.police) { return .police }
         if tags["landuse"] == "military" || tags["military"] != nil || tags["government"] == "military" { return .military }
         if tags["amenity"] == "townhall" || tags["government"] == "administrative" || matches(.administration) { return .administration }
+        if hasGeneralSchoolIdentity(tags) { return .school }
         // A building's original design remains a fallback; a current explicit
         // service above may occupy a repurposed school/kindergarten building.
         if tags["building"] == "kindergarten" { return .kindergarten }

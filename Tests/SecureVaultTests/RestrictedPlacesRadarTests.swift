@@ -32,6 +32,24 @@ final class RestrictedPlacesRadarTests: XCTestCase {
         var strict = settings; strict.blockOnEmptyOnlineResponse = true
         XCTAssertNil(RestrictedPlacesRadarPolicy.places(location: user(), settings: strict, snapshot: snapshot([], empty: true), now: now))
     }
+
+    func testMovingThroughOfflineRegionReplacesPlaygroundsWithoutLimitingTheirCount() throws {
+        let places = (0..<12).map { place("playground-\($0)", kind: .playground, north: Double($0) * 250) }
+        let bounds = OfflineRegionBounds(south: 54.9, west: 69.9, north: 55.1, east: 70.1)
+        let data = RestrictedPlacesSnapshot(center: user(), radius: 0, fetchedAt: now, places: places,
+            offlineBounds: bounds, index: RestrictedPlaceIndex(places))
+        let settings = RestrictedPlaceSettings(enabled: true)
+        for north in [0.0, 800, 1_600] {
+            let moved = CLLocation(coordinate: .init(latitude: 55 + north / 111_000, longitude: 70),
+                altitude: 0, horizontalAccuracy: 1, verticalAccuracy: 1, timestamp: now)
+            let expected = places.filter { $0.distance(from: moved) <= 1_000 }
+                .sorted { $0.distance(from: moved) < $1.distance(from: moved) }.map(\.id)
+            let visible = try XCTUnwrap(RestrictedPlacesRadarPolicy.places(location: moved, settings: settings,
+                snapshot: data, now: now))
+            XCTAssertEqual(visible.map(\.id), expected)
+            XCTAssertGreaterThan(visible.count, 3)
+        }
+    }
     func testDisabledKindsAndDistantObjectsAreOmittedWithoutHidingNearbySchools() throws {
         let places = [place("school", kind: .school, north: 50), place("police", kind: .police, north: 100),
                       place("distant-school", kind: .school, north: 2_000)]

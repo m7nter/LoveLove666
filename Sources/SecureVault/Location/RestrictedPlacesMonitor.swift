@@ -16,6 +16,14 @@ final class RestrictedPlacesMonitor: ObservableObject {
     private var radarSourceIsOffline = false
     private var radarSettings: RestrictedPlaceSettings?
     @Published private(set) var lastCheckSummary = "Проверка ещё не выполнялась"
+    var radarDataSummary: String? {
+        guard radarIsVerified, let date = radarSourceDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = radarSourceIsOffline ? "dd.MM.yyyy" : "HH:mm:ss"
+        let source = radarSourceIsOffline ? "Офлайн · база загружена" : "OSM онлайн · проверено"
+        return "\(source) \(formatter.string(from: date)) · объектов: \(radarPlaces.count)"
+    }
     private var snapshot: RestrictedPlacesSnapshot?
     private var requestTask: Task<Void, Never>?
     private var requestID: UUID?
@@ -235,7 +243,7 @@ final class RestrictedPlacesMonitor: ObservableObject {
         // authoritative
         // RestrictedPlaceKind.classify() applies the Russian aliases after
         // decoding the returned tags.
-        let nameAliasKinds: [RestrictedPlaceKind] = [.playground, .police, .security, .administration, .prosecutor, .recruitment]
+        let nameAliasKinds: [RestrictedPlaceKind] = [.school, .playground, .police, .security, .administration, .prosecutor, .recruitment]
         if nameAliasKinds.contains(where: includes) {
             filters.append(contentsOf: RestrictedPlaceKind.identifyingNameKeys.map { "[\(quoteTagKey($0))]" })
         }

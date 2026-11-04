@@ -109,9 +109,9 @@ struct OfflineZoneSource: Codable {
 }
 
 struct OfflinePlaceDataset: Codable {
-    // Version 3 includes education=school/kindergarten, which older extracted
-    // indexes discarded even when present in the downloaded regional source.
-    static let currentSchemaVersion = 3
+    // Version 4 also recognizes general-education lyceums/gymnasiums by name,
+    // including those mapped as college. Older indexes discarded these objects.
+    static let currentSchemaVersion = 4
     enum Source: String, Codable { case regionalPBF, worldwideOverpass }
     let schemaVersion: Int
     let source: Source?

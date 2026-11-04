@@ -47,6 +47,11 @@ struct RestrictedPlacesRadarView: View {
                         .accessibilityIdentifier("radar.status")
                     Text(monitor.decision.message.isEmpty ? "Включите контроль территорий в настройках." : monitor.decision.message)
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if let summary = monitor.radarDataSummary {
+                        Text(summary).font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("radar.source")
+                    }
                 }
                 Spacer(minLength: 0)
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
@@ -102,7 +107,7 @@ struct RestrictedPlacesRadarView: View {
                     .padding(16).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
                     .padding(.horizontal, 20).padding(.top, 12)
             }
-            Text("Нажмите на объект. Расстояния и проверка относятся к вашей позиции.")
+            Text("Нажмите на объект. Показываем ближайшие зоны у вашей позиции. Сдвиг карты не запускает поиск в другом районе.")
                 .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14)
         }.background(Color.black).foregroundStyle(.white).preferredColorScheme(.dark)

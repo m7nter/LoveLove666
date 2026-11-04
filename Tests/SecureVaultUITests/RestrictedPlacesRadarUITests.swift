@@ -8,6 +8,7 @@ final class RestrictedPlacesRadarUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["radar.title"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["radar.status"].exists)
+        XCTAssertTrue(app.staticTexts["radar.source"].label.contains("OSM онлайн"))
         XCTAssertTrue(app.buttons["radar.recenter"].exists)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "radar.legend").firstMatch.exists)
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "radar.details").firstMatch.exists)

@@ -69,6 +69,19 @@ final class OfflinePlacesTests: XCTestCase {
         let query = OfflineMapManager.placeQuery(for: bounds)
         XCTAssertTrue(query.contains("[education~\"^(school|kindergarten)$\"]"))
         XCTAssertTrue(query.contains("out tags geom"), "Distance must use territory geometry, not only a centre")
+        XCTAssertTrue(query.contains("[\"name\"]"), "Mistagged lyceums must also survive Overpass-based region downloads")
+    }
+
+    func testIndexesBuiltBeforeSchoolNameSupportRequireRefresh() throws {
+        let fresh = OfflinePlaceDataset(region: .init(id: "name-fixture", name: "Тест", iso: "", bounds: bounds),
+                                        bounds: bounds, date: Date(), places: [])
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(fresh)) as? [String: Any])
+        json["schemaVersion"] = 3
+        let previous = try JSONDecoder().decode(OfflinePlaceDataset.self,
+            from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertTrue(previous.requiresSafetyUpdate)
+        XCTAssertFalse(previous.isCurrent)
+        XCTAssertFalse(previous.snapshot.covers(position(), settings: .init(enabled: true), now: Date()))
     }
     func testPartialOfflineDatasetNeverClaimsFailedTilesAreChecked() {
         let successfulTile = OfflineRegionBounds(south: 54.5, west: 36.5, north: 55.5, east: 37.5)

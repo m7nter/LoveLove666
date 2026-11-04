@@ -5,7 +5,7 @@ import CoreLocation
 /// Actual protobuf bytes exercise both PBF passes rather than mocking the
 /// final places. Coordinates are synthetic and independent of any user.
 final class OSMPBFParserTests: XCTestCase {
-    private let table = ["", "amenity", "school", "leisure", "playground", "type", "multipolygon", "site", "outer", "inner", "education", "kindergarten"]
+    private let table = ["", "amenity", "school", "leisure", "playground", "type", "multipolygon", "site", "outer", "inner", "education", "kindergarten", "college", "name", "Физико-математический лицей (учебный корпус №2)", "building", "yes"]
 
     private func varint(_ value: UInt64) -> Data {
         var value = value, result = Data()
@@ -65,6 +65,22 @@ final class OSMPBFParserTests: XCTestCase {
     func testWayUsesBoundaryAndBlocksInsideRatherThanPolygonCenterDistance() throws {
         let places = try parse(pbf(squareNodes + way(10, refs: [1, 2, 3, 4, 1], school: true)))
         let place = try XCTUnwrap(places.first)
+        XCTAssertEqual(place.outerRings.count, 1)
+        XCTAssertEqual(place.distance(from: position(0.005, 0.005)), 0)
+        XCTAssertEqual(place.distance(from: position(0.005, -0.0003)), 33.4, accuracy: 1)
+    }
+
+    func testCollegeTaggedLyceumKeepsItsMultipolygonInTheOfflineIndex() throws {
+        let lyceum = field(4, bytes: field(1, 20) + packed(2, [1, 13, 15, 5])
+            + packed(3, [12, 14, 16, 6]) + packed(8, [8])
+            + packed(9, [zigzag(10)]) + packed(10, [1]))
+        let group = squareNodes + way(10, refs: [1, 2, 3, 4, 1]) + lyceum
+            + node(5, lat: 50_000, lon: 50_000, keys: [1], values: [12])
+        let places = try parse(pbf(group))
+        XCTAssertEqual(places.count, 1, "An ordinary college must not be added")
+        let place = try XCTUnwrap(places.first)
+        XCTAssertEqual(place.id, "relation/20")
+        XCTAssertEqual(place.kind, .school)
         XCTAssertEqual(place.outerRings.count, 1)
         XCTAssertEqual(place.distance(from: position(0.005, 0.005)), 0)
         XCTAssertEqual(place.distance(from: position(0.005, -0.0003)), 33.4, accuracy: 1)

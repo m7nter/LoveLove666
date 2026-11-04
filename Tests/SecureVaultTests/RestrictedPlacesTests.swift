@@ -149,6 +149,45 @@ final class RestrictedPlacesTests: XCTestCase {
         XCTAssertEqual(place.distance(from: location(0.0005, 0.0005)), 0)
         XCTAssertGreaterThan(place.distance(from: location(0.005, 0.005)), 500)
     }
+    func testGeneralSchoolNamesIncludeCollegeTaggedLyceumsWithoutIncludingColleges() throws {
+        for name in ["Физико-математический лицей (учебный корпус №2)", "Гимназия №3",
+                     "Школа №34", "Средняя общеобразовательная школа", "МБОУ СОШ №5",
+                     "Ліцей №7", "Гімназія №4"] {
+            let tags = ["amenity": "college", "building": "yes", "name": name]
+            XCTAssertEqual(RestrictedPlaceKind.classify(tags), .school, name)
+            let data = try JSONSerialization.data(withJSONObject: ["elements": [
+                ["type": "node", "id": 1, "lat": 0.0, "lon": 0.0, "tags": tags]
+            ]])
+            let places = try RestrictedPlacesParser.parse(data)
+            XCTAssertEqual(places.first?.kind, .school, name)
+            XCTAssertTrue(decision(location(), places).blocked, name)
+        }
+        for name in ["Технологический колледж", "Педагогический техникум", "Колледж «Лицей»",
+                     "Высшая школа экономики", "Автошкола №1", "Детская музыкальная школа №2",
+                     "Школа танцев №3", "Школа искусств №4"] {
+            XCTAssertNil(RestrictedPlaceKind.classify(["amenity": "college", "name": name]), name)
+        }
+    }
+
+    func testSchoolNameFallbackDoesNotReclassifyOtherFacilitiesOrTheirOwner() {
+        XCTAssertNil(RestrictedPlaceKind.classify(["shop": "books", "name": "Лицей"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["highway": "residential", "name": "Лицей"]))
+        XCTAssertNil(RestrictedPlaceKind.classify(["building": "yes", "name": "Склад", "operator": "Лицей №1"]))
+        XCTAssertEqual(RestrictedPlaceKind.classify(["leisure": "playground", "name": "Лицей №1"]), .playground)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["amenity": "police", "name": "Бывший лицей"]), .police)
+        XCTAssertEqual(RestrictedPlaceKind.classify(["building": "yes", "official_name": "Гимназия №4"]), .school)
+    }
+
+    func testSchoolOnlyQueryStillRequestsNamesForMistaggedLyceums() {
+        var settings = enabled
+        settings.disabledKinds = Set(RestrictedPlaceKind.allCases.filter { $0 != .school })
+        let query = RestrictedPlacesMonitor.query(near: location(), radius: 1_100, settings: settings)
+        XCTAssertTrue(query.contains("[\"name\"]"))
+        XCTAssertTrue(query.contains("[\"name:ru\"]"))
+        XCTAssertTrue(query.contains("[\"official_name\"]"))
+        XCTAssertFalse(query.contains("лицей"))
+    }
+
     func testCategoriesAndSpecificServicePriority() {
         XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"УФСБ России"]), .security)
         XCTAssertEqual(RestrictedPlaceKind.classify(["office":"government","name":"Федеральная служба безопасности"]), .security)
